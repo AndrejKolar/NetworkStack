@@ -5,24 +5,8 @@ import PlaygroundSupport
 
 // Types
 
-// TO REFACTOR
 typealias NetworkResult = (Any?, Error?) -> Void
 typealias Json = [String: Any]
-
-
-// Result.swift
-
-enum Result<T> {
-    case Success(T)
-    case Failure(Error)
-}
-
-// Error.swift
-
-enum SerializationError: Error {
-    case missing(String)
-    case invalid(String, Any)
-}
 
 
 // Webservice.swift
@@ -93,21 +77,17 @@ class Webservice {
         
         do {
             let json = try JSONSerialization.jsonObject(with: data, options: [])
-            if let jsonArray = json as? [Json] {
-                let results =  try endpoint.parse(jsonArray)
-                OperationQueue.main.addOperation {
-                    completion(results, nil)
-                }
+
+            guard let jsonArray = json as? [Json] else {
+                OperationQueue.main.addOperation { completion(nil, SerializationError.invalid("Not a JSON array", json)) }
+                return
             }
             
-            // PARSE ERROR HERE
-
+            let results =  try endpoint.parse(jsonArray)
+            OperationQueue.main.addOperation { completion(results, nil) }
             
         } catch let parseError {
-            OperationQueue.main.addOperation {
-                self.networkActivityCount -= 1
-                completion(nil, parseError)
-            }
+            OperationQueue.main.addOperation { completion(nil, parseError) }
         }
     }
     
@@ -117,6 +97,12 @@ class Webservice {
 
 protocol Seriazible {
     init?(json: [String: Any]) throws
+}
+
+
+enum SerializationError: Error {
+    case missing(String)
+    case invalid(String, Any)
 }
 
 protocol Endpoint {
