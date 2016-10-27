@@ -8,7 +8,6 @@ import PlaygroundSupport
 typealias NetworkResult = (Any?, Error?) -> Void
 typealias Json = [String: Any]
 
-
 // Webservice.swift
 
 class Webservice {
@@ -34,9 +33,7 @@ class Webservice {
             self.decrementNetworkActivity()
             
             guard let data = data else {
-                OperationQueue.main.addOperation({
-                    completition(nil, error)
-                })
+                OperationQueue.main.addOperation({ completition(nil, error) })
                 return
             }
             
@@ -48,27 +45,21 @@ class Webservice {
     
     func mockRequest(_ endpoint: Endpoint, completition: @escaping NetworkResult) {
         guard let data = endpoint.mockData else {
-            OperationQueue.main.addOperation({
-                // PARSE ERROR HERE !!!
-                completition(nil, nil)
-            })
+            OperationQueue.main.addOperation({ completition(nil, SerializationError.invalid("No mock data", nil)) })
             return
         }
         
         parseJSON(data: data, endpoint: endpoint, completion: completition)
     }
     
-    // Network Activity REFACTOR???
+    // Network activity
+    
     private func incrementNetworkActivity() {
-        OperationQueue.main.addOperation({
-            self.networkActivityCount += 1
-        })
+        OperationQueue.main.addOperation({ self.networkActivityCount += 1 })
     }
     
     private func decrementNetworkActivity() {
-        OperationQueue.main.addOperation({
-            self.networkActivityCount += 1
-        })
+        OperationQueue.main.addOperation({ self.networkActivityCount -= 1 })
     }
     
     // Parse JSON
@@ -99,10 +90,9 @@ protocol Seriazible {
     init?(json: [String: Any]) throws
 }
 
-
 enum SerializationError: Error {
     case missing(String)
-    case invalid(String, Any)
+    case invalid(String, Any?)
 }
 
 protocol Endpoint {
@@ -111,9 +101,10 @@ protocol Endpoint {
     var httpMethod: String { get }
     var mockData: Data? { get }
     
-    func parse(_ jsonArray: [Json]) throws -> [Any]
+    func parse(_ jsonArray: [Json]) throws -> Any
 }
 
+// Parse helper functions
 extension Endpoint {
     func parseArray<A: Seriazible>(_ jsonArray: [Json]) throws -> [A] {
         var results: [A] = []
@@ -123,6 +114,14 @@ extension Endpoint {
             }
         }
         return results
+    }
+    
+    func parseDictionary<A: Seriazible>(_ jsonDictionary: Json) throws -> A {
+        if let entity = try A(json: jsonDictionary) {
+            return entity
+        } else {
+            throw SerializationError.invalid("Invalid json dictionary", jsonDictionary)
+        }
     }
 }
 
@@ -158,7 +157,7 @@ extension UserEndpoint: Endpoint {
         }
     }
     
-    func parse(_ jsonArray: [Json]) throws -> [Any] {
+    func parse(_ jsonArray: [Json]) throws -> Any {
         switch self {
         case .all:
             let userArray: [User] = try parseArray(jsonArray)
