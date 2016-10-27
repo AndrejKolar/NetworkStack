@@ -5,8 +5,25 @@ import PlaygroundSupport
 
 // Types
 
+// TO REFACTOR
 typealias NetworkResult = (Any?, Error?) -> Void
 typealias Json = [String: Any]
+
+
+// Result.swift
+
+enum Result<T> {
+    case Success(T)
+    case Failure(Error)
+}
+
+// Error.swift
+
+enum SerializationError: Error {
+    case missing(String)
+    case invalid(String, Any)
+}
+
 
 // Webservice.swift
 
@@ -57,7 +74,7 @@ class Webservice {
         parseJSON(data: data, endpoint: endpoint, completion: completition)
     }
     
-    // Network Activity
+    // Network Activity REFACTOR???
     private func incrementNetworkActivity() {
         OperationQueue.main.addOperation({
             self.networkActivityCount += 1
@@ -70,7 +87,7 @@ class Webservice {
         })
     }
     
-    // JSON
+    // Parse JSON
     
     private func parseJSON(data: Data, endpoint: Endpoint, completion: @escaping NetworkResult) {
         
@@ -93,16 +110,34 @@ class Webservice {
             }
         }
     }
+    
 }
 
 // Endpoint.swift
+
+protocol Seriazible {
+    init?(json: [String: Any]) throws
+}
 
 protocol Endpoint {
     var baseUrlString: String { get }
     var request: URLRequest { get }
     var httpMethod: String { get }
     var mockData: Data? { get }
-    var parse: (_ json: [Json]) throws -> Any { get }
+    
+    func parse(_ jsonArray: [Json]) throws -> [Any]
+}
+
+extension Endpoint {
+    func parseArray<A: Seriazible>(_ jsonArray: [Json]) throws -> [A] {
+        var results: [A] = []
+        for jsonDict in jsonArray {
+            if let entity = try A(json: jsonDict) {
+                results.append(entity)
+            }
+        }
+        return results
+    }
 }
 
 // UserEndpoint.swift
@@ -137,26 +172,18 @@ extension UserEndpoint: Endpoint {
         }
     }
     
-    var parse: (_ jsonArray: [Json]) throws -> Any {
-        return  { jsonArray in
-            var results: [User] = []
-            for jsonDict in jsonArray {
-                if let user = try User(json: jsonDict) {
-                    results.append(user)
-                }
-            }
-            return results
+    func parse(_ jsonArray: [Json]) throws -> [Any] {
+        switch self {
+        case .all:
+            let userArray: [User] = try parseArray(jsonArray)
+            return userArray
         }
     }
 }
 
 // User.swift
-enum SerializationError: Error {
-    case missing(String)
-    case invalid(String, Any)
-}
 
-struct User {
+struct User: Seriazible {
     let id: Int
     let username: String
     let email: String
@@ -195,7 +222,7 @@ webservice.request(UserEndpoint.all) { (result, error) in
         return
     }
     
-    guard let result = result else {
+    guard let result = result as? [User] else {
         print("No result")
         return
     }
@@ -209,7 +236,7 @@ webservice.mockRequest(UserEndpoint.all) { (result, error) in
         return
     }
     
-    guard let result = result else {
+    guard let result = result as? [User] else {
         print("No result")
         return
     }
