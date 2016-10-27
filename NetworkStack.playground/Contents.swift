@@ -111,10 +111,10 @@ protocol Endpoint {
 
 // Parse helper functions
 extension Endpoint {
-    func parseArray<A: Seriazible>(_ jsonArray: [Json]) throws -> [A] {
-        var results: [A] = []
+    func parseArray<T: Seriazible>(_ jsonArray: [Json]) throws -> [T] {
+        var results: [T] = []
         for jsonDict in jsonArray {
-            if let entity = try A(json: jsonDict) {
+            if let entity = try T(json: jsonDict) {
                 results.append(entity)
             }
         }
