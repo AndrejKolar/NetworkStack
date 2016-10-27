@@ -6,12 +6,16 @@ import PlaygroundSupport
 // Types
 typealias Json = [String: Any]
 
-enum Result<T> {
-    case success(T)
+protocol Seriazible {
+    init?(json: [String: Any]) throws
+}
+
+enum Result<T: Seriazible> {
+    case success([T])
     case error(Error?)
 }
 
-typealias ResultCallback<T> = (Result<T>) -> Void
+typealias ResultCallback<T: Seriazible> = (Result<T>) -> Void
 
 // Webservice.swift
 
@@ -79,7 +83,7 @@ class Webservice {
                 return
             }
             
-            let results =  try endpoint.parse(jsonArray) as! T
+            let results: [T] =  try endpoint.parse(jsonArray)
             OperationQueue.main.addOperation { completition(.success(results)) }
             
         } catch let parseError {
@@ -90,10 +94,6 @@ class Webservice {
 }
 
 // Endpoint.swift
-
-protocol Seriazible {
-    init?(json: [String: Any]) throws
-}
 
 enum SerializationError: Error {
     case missing(String)
@@ -106,7 +106,7 @@ protocol Endpoint {
     var httpMethod: String { get }
     var mockData: Data? { get }
     
-    func parse(_ jsonArray: [Json]) throws -> Any
+    func parse<T: Seriazible>(_ jsonArray: [Json]) throws -> [T]
 }
 
 // Parse helper functions
@@ -119,14 +119,6 @@ extension Endpoint {
             }
         }
         return results
-    }
-    
-    func parseDictionary<A: Seriazible>(_ jsonDictionary: Json) throws -> A {
-        if let entity = try A(json: jsonDictionary) {
-            return entity
-        } else {
-            throw SerializationError.invalid("Invalid json dictionary", jsonDictionary)
-        }
     }
 }
 
@@ -162,10 +154,10 @@ extension UserEndpoint: Endpoint {
         }
     }
     
-    func parse(_ jsonArray: [Json]) throws -> Any {
+    func parse<T: Seriazible>(_ jsonArray: [Json]) throws -> [T] {
         switch self {
         case .all:
-            let userArray: [User] = try parseArray(jsonArray)
+            let userArray: [T] = try parseArray(jsonArray)
             return userArray
         }
     }
@@ -205,7 +197,7 @@ PlaygroundPage.current.needsIndefiniteExecution = true
 
 let webservice = Webservice.sharedInstance
 
-webservice.request(UserEndpoint.all) { (result: Result<[User]>) in
+webservice.request(UserEndpoint.all) { (result: Result<User>) in
     switch result {
     case .error(let error):
         dump(error)
@@ -214,7 +206,7 @@ webservice.request(UserEndpoint.all) { (result: Result<[User]>) in
     }
 }
 
-webservice.mockRequest(UserEndpoint.all) { (result: Result<[User]>) in
+webservice.mockRequest(UserEndpoint.all) { (result: Result<User>) in
     switch result {
     case .error(let error):
         dump(error)
