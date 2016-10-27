@@ -4,9 +4,14 @@ import UIKit
 import PlaygroundSupport
 
 // Types
-
-typealias NetworkResult = (Any?, Error?) -> Void
 typealias Json = [String: Any]
+
+enum Result<T> {
+    case success(T)
+    case error(Error?)
+}
+
+typealias ResultCallback<T> = (Result<T>) -> Void
 
 // Webservice.swift
 
@@ -25,7 +30,7 @@ class Webservice {
         self.urlSession = URLSession(configuration: URLSessionConfiguration.default)
     }
     
-    func request(_ endpoint: Endpoint, completition: @escaping NetworkResult) {
+    func request<T>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
         incrementNetworkActivity()
         
         let task = urlSession.dataTask(with: endpoint.request) { [unowned self] (data, response, error) in
@@ -33,23 +38,23 @@ class Webservice {
             self.decrementNetworkActivity()
             
             guard let data = data else {
-                OperationQueue.main.addOperation({ completition(nil, error) })
+                OperationQueue.main.addOperation({ completition(.error(error)) })
                 return
             }
             
-            self.parseJSON(data: data, endpoint: endpoint, completion: completition)
+            self.parseJSON(data: data, endpoint: endpoint, completition: completition)
         }
         
         task.resume()
     }
     
-    func mockRequest(_ endpoint: Endpoint, completition: @escaping NetworkResult) {
+    func mockRequest<T>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
         guard let data = endpoint.mockData else {
-            OperationQueue.main.addOperation({ completition(nil, SerializationError.invalid("No mock data", nil)) })
+            OperationQueue.main.addOperation({ completition(.error(SerializationError.invalid("No mock data", nil))) })
             return
         }
         
-        parseJSON(data: data, endpoint: endpoint, completion: completition)
+        parseJSON(data: data, endpoint: endpoint, completition: completition)
     }
     
     // Network activity
@@ -64,21 +69,21 @@ class Webservice {
     
     // Parse JSON
     
-    private func parseJSON(data: Data, endpoint: Endpoint, completion: @escaping NetworkResult) {
+    private func parseJSON<T>(data: Data, endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
         
         do {
             let json = try JSONSerialization.jsonObject(with: data, options: [])
-
+            
             guard let jsonArray = json as? [Json] else {
-                OperationQueue.main.addOperation { completion(nil, SerializationError.invalid("Not a JSON array", json)) }
+                OperationQueue.main.addOperation { completition(.error(SerializationError.invalid("Not a JSON array", nil))) }
                 return
             }
             
-            let results =  try endpoint.parse(jsonArray)
-            OperationQueue.main.addOperation { completion(results, nil) }
+            let results =  try endpoint.parse(jsonArray) as! T
+            OperationQueue.main.addOperation { completition(.success(results)) }
             
         } catch let parseError {
-            OperationQueue.main.addOperation { completion(nil, parseError) }
+            OperationQueue.main.addOperation { completition(.error(parseError)) }
         }
     }
     
@@ -192,39 +197,28 @@ struct User: Seriazible {
     }
 }
 
-
 // Playground
 
 PlaygroundPage.current.needsIndefiniteExecution = true
 
-// Test
+// Run
 
 let webservice = Webservice.sharedInstance
 
-webservice.request(UserEndpoint.all) { (result, error) in
-    if let error = error {
+webservice.request(UserEndpoint.all) { (result: Result<[User]>) in
+    switch result {
+    case .error(let error):
         dump(error)
-        return
+    case .success(let users):
+        dump(users)
     }
-    
-    guard let result = result as? [User] else {
-        print("No result")
-        return
-    }
-    
-    dump(result)
 }
 
-webservice.mockRequest(UserEndpoint.all) { (result, error) in
-    if let error = error {
+webservice.mockRequest(UserEndpoint.all) { (result: Result<[User]>) in
+    switch result {
+    case .error(let error):
         dump(error)
-        return
+    case .success(let users):
+        dump(users)
     }
-    
-    guard let result = result as? [User] else {
-        print("No result")
-        return
-    }
-    
-    dump(result)
 }
