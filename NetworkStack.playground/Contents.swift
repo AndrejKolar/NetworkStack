@@ -1,7 +1,7 @@
 /*: Description
-# NetworkStack
-Clean and simple networking stack
-*/
+ # NetworkStack
+ Clean and simple networking stack
+ */
 import UIKit
 import PlaygroundSupport
 
@@ -68,8 +68,6 @@ class Webservice {
         Parser.json(data: data, endpoint: endpoint, completition: completition)
     }
     
-    // Network activity
-    
     private func incrementNetworkActivity() {
         OperationQueue.main.addOperation({ self.networkActivityCount += 1 })
     }
@@ -83,8 +81,11 @@ class Webservice {
 
 class Parser {
     class func json<T>(data: Data, endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
+        
         do {
             let json = try JSONSerialization.jsonObject(with: data, options: [])
+            
+            dump(json)
             
             if let jsonArray = json as? [Json] {
                 let results: [T] = try parseArray(jsonArray)
@@ -93,9 +94,12 @@ class Parser {
                 let result: T = try parseDictionary(jsonDict)
                 OperationQueue.main.addOperation { completition(.success([result])) }
             } else {
-                OperationQueue.main.addOperation { completition(.error(NetworkStackError.invalid("Not a JSON array", nil))) }
+                OperationQueue.main.addOperation { completition(.error(NetworkStackError.invalid("Not a JSON array", json))) }
             }
         } catch let parseError {
+            
+            dump(parseError)
+            
             OperationQueue.main.addOperation { completition(.error(parseError)) }
         }
     }
@@ -115,34 +119,47 @@ class Parser {
             return entity
         }
         
-        throw NetworkStackError.missing("Cannot create entity from dictionary")
+        throw NetworkStackError.invalid("Cannot create entity from dictionary", jsonDict)
     }
 }
 
 // Endpoint
 
 protocol Endpoint {
-    var baseUrlString: String { get }
+    var baseUrl: URL { get }
     var request: URLRequest { get }
     var httpMethod: String { get }
     var mockData: Data? { get }
+    var queryItems: [URLQueryItem]? { get }
+}
+
+extension Endpoint {
+    internal func requestForEndpoint(_ endpoint: String) -> URLRequest {
+        let url = URL(string: endpoint, relativeTo: baseUrl)!
+        var urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: true)!
+        urlComponents.queryItems = self.queryItems
+        var request = URLRequest(url: urlComponents.url!)
+        request.httpMethod = self.httpMethod
+        return request
+    }
 }
 
 // UserEndpoint
 
 enum UserEndpoint {
     case all
+    case get(userId: Int)
 }
 
 extension UserEndpoint: Endpoint {
-    var baseUrlString: String { return "http://www.mocky.io/v2" }
+    var baseUrl: URL { return URL(string: "http://www.mocky.io")! }
     
     var request: URLRequest {
         switch self {
         case .all:
-            var request = URLRequest(url: URL(string: baseUrlString + "/5810c7d93a0000710660982d")!)
-            request.httpMethod = self.httpMethod
-            return request
+            return requestForEndpoint("/v2/58177efc1000008c01cc7fc2")
+        case .get(_):
+            return requestForEndpoint("/v2/58177ddc1000008901cc7fbf")
         }
     }
     
@@ -150,6 +167,17 @@ extension UserEndpoint: Endpoint {
         switch self {
         case .all:
             return "GET"
+        case .get( _):
+            return "GET"
+        }
+    }
+    
+    var queryItems: [URLQueryItem]? {
+        switch self {
+        case .all:
+            return nil
+        case .get(let userId):
+            return [URLQueryItem(name: "userId", value: String(userId))]
         }
     }
     
@@ -157,6 +185,8 @@ extension UserEndpoint: Endpoint {
         switch self {
         case .all:
             return "[{\"id\":2, \"username\": \"AndrejKolar2\", \"email\": \"andrej.kolar@clevertech.biz\"}]".data(using: String.Encoding.utf8)
+        case .get( _):
+            return "{\"id\":3, \"username\": \"AndrejKolar_Dict\", \"email\": \"andrej.kolar@clevertech.biz\"}".data(using: String.Encoding.utf8)
         }
     }
 }
@@ -204,7 +234,16 @@ webservice.request(UserEndpoint.all) { (result: Result<User>) in
     }
 }
 
-webservice.mockRequest(UserEndpoint.all) { (result: Result<User>) in
+webservice.request(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
+    switch result {
+    case .error(let error):
+        dump(error)
+    case .success(let users):
+        dump(users)
+    }
+}
+
+webservice.mockRequest(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
     switch result {
     case .error(let error):
         dump(error)
