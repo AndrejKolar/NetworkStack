@@ -1,23 +1,30 @@
-//: Playground - noun: a place where people can play
-
+/*: Description
+# NetworkStack
+Clean and simple networking stack
+*/
 import UIKit
 import PlaygroundSupport
 
 // Types
 typealias Json = [String: Any]
 
-protocol Seriazible {
+protocol Serializable {
     init?(json: [String: Any]) throws
 }
 
-enum Result<T: Seriazible> {
+enum Result<T: Serializable> {
     case success([T])
     case error(Error?)
 }
 
-typealias ResultCallback<T: Seriazible> = (Result<T>) -> Void
+enum NetworkStackError: Error {
+    case missing(String)
+    case invalid(String, Any?)
+}
 
-// Webservice.swift
+typealias ResultCallback<T: Serializable> = (Result<T>) -> Void
+
+// Webservice
 
 class Webservice {
     static let sharedInstance = Webservice()
@@ -46,7 +53,7 @@ class Webservice {
                 return
             }
             
-            self.parseJSON(data: data, endpoint: endpoint, completition: completition)
+            Parser.json(data: data, endpoint: endpoint, completition: completition)
         }
         
         task.resume()
@@ -54,11 +61,11 @@ class Webservice {
     
     func mockRequest<T>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
         guard let data = endpoint.mockData else {
-            OperationQueue.main.addOperation({ completition(.error(SerializationError.invalid("No mock data", nil))) })
+            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.invalid("No mock data", nil))) })
             return
         }
         
-        parseJSON(data: data, endpoint: endpoint, completition: completition)
+        Parser.json(data: data, endpoint: endpoint, completition: completition)
     }
     
     // Network activity
@@ -70,48 +77,30 @@ class Webservice {
     private func decrementNetworkActivity() {
         OperationQueue.main.addOperation({ self.networkActivityCount -= 1 })
     }
-    
-    // Parse JSON
-    
-    private func parseJSON<T>(data: Data, endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
-        
+}
+
+// Parser
+
+class Parser {
+    class func json<T>(data: Data, endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
         do {
             let json = try JSONSerialization.jsonObject(with: data, options: [])
             
-            guard let jsonArray = json as? [Json] else {
-                OperationQueue.main.addOperation { completition(.error(SerializationError.invalid("Not a JSON array", nil))) }
-                return
+            if let jsonArray = json as? [Json] {
+                let results: [T] = try parseArray(jsonArray)
+                OperationQueue.main.addOperation { completition(.success(results)) }
+            } else if let jsonDict = json as? Json {
+                let result: T = try parseDictionary(jsonDict)
+                OperationQueue.main.addOperation { completition(.success([result])) }
+            } else {
+                OperationQueue.main.addOperation { completition(.error(NetworkStackError.invalid("Not a JSON array", nil))) }
             }
-            
-            let results: [T] =  try endpoint.parse(jsonArray)
-            OperationQueue.main.addOperation { completition(.success(results)) }
-            
         } catch let parseError {
             OperationQueue.main.addOperation { completition(.error(parseError)) }
         }
     }
     
-}
-
-// Endpoint.swift
-
-enum SerializationError: Error {
-    case missing(String)
-    case invalid(String, Any?)
-}
-
-protocol Endpoint {
-    var baseUrlString: String { get }
-    var request: URLRequest { get }
-    var httpMethod: String { get }
-    var mockData: Data? { get }
-    
-    func parse<T: Seriazible>(_ jsonArray: [Json]) throws -> [T]
-}
-
-// Parse helper functions
-extension Endpoint {
-    func parseArray<T: Seriazible>(_ jsonArray: [Json]) throws -> [T] {
+    private class func parseArray<T: Serializable>(_ jsonArray: [Json]) throws -> [T] {
         var results: [T] = []
         for jsonDict in jsonArray {
             if let entity = try T(json: jsonDict) {
@@ -120,9 +109,26 @@ extension Endpoint {
         }
         return results
     }
+    
+    private class func parseDictionary<T: Serializable>(_ jsonDict: Json) throws -> T {
+        if let entity = try T(json: jsonDict) {
+            return entity
+        }
+        
+        throw NetworkStackError.missing("Cannot create entity from dictionary")
+    }
 }
 
-// UserEndpoint.swift
+// Endpoint
+
+protocol Endpoint {
+    var baseUrlString: String { get }
+    var request: URLRequest { get }
+    var httpMethod: String { get }
+    var mockData: Data? { get }
+}
+
+// UserEndpoint
 
 enum UserEndpoint {
     case all
@@ -153,34 +159,26 @@ extension UserEndpoint: Endpoint {
             return "[{\"id\":2, \"username\": \"AndrejKolar2\", \"email\": \"andrej.kolar@clevertech.biz\"}]".data(using: String.Encoding.utf8)
         }
     }
-    
-    func parse<T: Seriazible>(_ jsonArray: [Json]) throws -> [T] {
-        switch self {
-        case .all:
-            let userArray: [T] = try parseArray(jsonArray)
-            return userArray
-        }
-    }
 }
 
-// User.swift
+// User
 
-struct User: Seriazible {
+struct User: Serializable {
     let id: Int
     let username: String
     let email: String
     
-    init?(json: [String: Any]) throws {
+    init(json: [String: Any]) throws {
         guard let id = json["id"] as? Int else {
-            throw SerializationError.missing("id")
+            throw NetworkStackError.missing("id")
         }
         
         guard let username = json["username"] as? String else {
-            throw SerializationError.missing("username")
+            throw NetworkStackError.missing("username")
         }
         
         guard let email = json["email"] as? String else {
-            throw SerializationError.missing("email")
+            throw NetworkStackError.missing("email")
         }
         
         self.id  = id
