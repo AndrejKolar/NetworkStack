@@ -198,7 +198,7 @@ struct User: Serializable {
     let username: String
     let email: String
     
-    init(json: [String: Any]) throws {
+    init(json: Json) throws {
         guard let id = json["id"] as? Int else {
             throw NetworkStackError.missing("id")
         }
