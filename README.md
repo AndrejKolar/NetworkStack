@@ -192,7 +192,7 @@ extension UserEndpoint: Endpoint {
         }
     }
 }
- ```
+```
  
 ###User
 Example of the entity model that the parser creates from the `Data` json.
@@ -222,8 +222,7 @@ struct User: Serializable {
         self.email = email
     }
 }
-``
- 
+```
 ##Example
 Fetch a Webservice intance and create 2 normal request and one mock request.
 
