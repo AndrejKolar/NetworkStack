@@ -2,21 +2,42 @@
 Clean &amp; simple Swift networking stack
 
 ##About
-Example playground of a full network client written in Swift without any external dependancies. Base code is under 200 LOC.
-The idea was to create something extendable and maintainable that can be used to quickly create a network layer with minimal boilerplate.
+Full network client written in Swift without any external dependancies. Base code is under 200 LOC.
+The idea was to create an extendable and maintainable client that can be used to quickly create a network layer with minimal boilerplate.
 It was inspired by [Moya](https://github.com/Moya/Moya) just uses `URLSession` where Moya depends on `Alamofire`
 
 ##Features
 - json parsing
 - mocking responses
-- error handeling
+- response handeling with the `enum Result<T: Serializable>` 
 - auto on/off network activity indicator
 
 ##Classes
 
+###Types
+Base types used in the client. `Json` is the typealias for the standard json dictionary. `Serializable` protocol is implemented by objects that can be created from json. `.missing` is thrown when a required value is missing in the json response. Parser throws an `.invalid` error if the response is not valid json.
+
+```swift
+typealias Json = [String: Any]
+
+protocol Serializable {
+    init?(json: [String: Any]) throws
+}
+
+enum Result<T: Serializable> {
+    case success([T])
+    case error(Error?)
+}
+
+enum NetworkStackError: Error {
+    case missing(String)
+    case invalid(String, Any?)
+}
+```
+
 ###Webservice 
-Singleton instance for creating normal requests and mock requests. 
-Also handles network activity indicator and makes sure the response is returned on the main thread (after parsing).
+Singleton instance for creating web requests and mocked requests. 
+Also handles the network activity indicator, calls the parser and makes sure the callback happens on the main thread.
 
 ```swift
 class Webservice {
@@ -72,7 +93,7 @@ class Webservice {
 ```
 
 ###Parser
-Called from the `Webservice`, parses the json `Data` and and calls the result callback. Works for Array and Dictionary root json objects.
+Called from the `Webservice`, parses the `Data` response and and calls the result callback. It can parse `Array` and `Dictionary` root json objects.
 
 ```swift
 class Parser {
@@ -120,7 +141,7 @@ class Parser {
 ```
 
 ###Endpoint
-Base protocol that specific endpoint enums implement. An endpoint enum is passed to the Webservice when creating a request.
+Base protocol that specific endpoint enums implement. An endpoint enum is passed to the `Webservice` when creating a request.
 
 ```swift
 protocol Endpoint {
@@ -144,8 +165,7 @@ extension Endpoint {
 ```
 
 ###UserEndpoint
-Example implementation of the Endpoint protocol. Implements two methods: `.all` for fetching all users and `.get(userId)`
- for fetching a specific user.
+Example implementation of the `Endpoint protocol. Implements two methods: `.all` for fetching all users and `.get(userId)` for fetching a specific user.
  
  ```swift
  enum UserEndpoint {
