@@ -1,4 +1,4 @@
-# NetworkStack
+# NetworkStack [![Language](https://img.shields.io/badge/swift-3.0-orange.svg)](http://swift.org)
 Clean &amp; simple Swift networking stack
 
 ##About
