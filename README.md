@@ -9,7 +9,7 @@ It was inspired by [Moya](https://github.com/Moya/Moya) just uses `URLSession` w
 ##Features
 - json parsing
 - mocking responses
-- response handeling with the `enum Result<T: Serializable>` 
+- response handling with the `enum Result<T: Serializable>` 
 - auto on/off network activity indicator
 
 ##Classes
