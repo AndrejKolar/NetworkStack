@@ -1,20 +1,20 @@
-# NetworkStack
+# NetworkStack [![Language](https://img.shields.io/badge/swift-3.0-orange.svg)](http://swift.org)
 Clean &amp; simple Swift networking stack
 
-##About
+## About
 Full network client written in Swift without any external dependancies. Base code is under 200 LOC.
 The idea was to create an extendable and maintainable client that can be used to quickly create a network layer with minimal boilerplate.
 It was inspired by [Moya](https://github.com/Moya/Moya) just uses `URLSession` where Moya depends on `Alamofire`
 
-##Features
+## Features
 - json parsing
 - mocking responses
-- response handeling with the `enum Result<T: Serializable>` 
+- response handling with the `enum Result<T: Serializable>` 
 - auto on/off network activity indicator
 
-##Classes
+## Classes
 
-###Types
+### Types
 Base types used in the client. `Json` is the typealias for the standard json dictionary. `Serializable` protocol is implemented by objects that can be created from json. `.missing` is thrown when a required value is missing in the json response. Parser throws an `.invalid` error if the response is not valid json.
 
 ```swift
@@ -35,7 +35,7 @@ enum NetworkStackError: Error {
 }
 ```
 
-###Webservice 
+### Webservice 
 Singleton instance for creating web requests and mocked requests. 
 Also handles the network activity indicator, calls the parser and makes sure the callback happens on the main thread.
 
@@ -92,7 +92,7 @@ class Webservice {
 }
 ```
 
-###Parser
+### Parser
 Called from the `Webservice`, parses the `Data` response and and calls the result callback. It can parse `Array` and `Dictionary` root json objects.
 
 ```swift
@@ -140,7 +140,7 @@ class Parser {
 }
 ```
 
-###Endpoint
+### Endpoint
 Base protocol that specific endpoint enums implement. An endpoint enum is passed to the `Webservice` when creating a request.
 
 ```swift
@@ -164,7 +164,7 @@ extension Endpoint {
 }
 ```
 
-###UserEndpoint
+### UserEndpoint
 Example implementation of the `Endpoint protocol. Implements two methods: `.all` for fetching all users and `.get(userId)` for fetching a specific user.
  
  ```swift
@@ -214,7 +214,7 @@ extension UserEndpoint: Endpoint {
 }
 ```
  
-###User
+### User
 Example of the entity model that the parser creates from the `Data` json.
 Implements the `Serializable` protocol that has the constructor with the json param.
 
@@ -243,7 +243,7 @@ struct User: Serializable {
     }
 }
 ```
-##Example
+## Example
 Fetch a Webservice intance and create 2 normal request and one mock request.
 
 ```swift

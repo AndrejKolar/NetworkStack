@@ -128,11 +128,10 @@ extension Endpoint {
     
     internal func mockData() -> Data? {
         guard let mockFileUrl = Bundle.main.url(forResource: mockFilename, withExtension: mockExtension),
-            let content = try? String(contentsOf: mockFileUrl, encoding: String.Encoding.utf8) else {
+            let mockData = try? Data(contentsOf: mockFileUrl) else {
                 return nil
         }
-        
-        return content.data(using: .utf8)
+        return mockData
     }
 }
 
