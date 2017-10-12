@@ -45,12 +45,12 @@ class Webservice: WebserviceProtocol {
     
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
         
-        incrementNetworkActivity()
-        
         guard let request = endpoint.request else {
             OperationQueue.main.addOperation({ completition(.error(NetworkStackError.invalidRequest)) })
             return
         }
+        
+        incrementNetworkActivity()
         
         let task = urlSession.dataTask(with: request) { [unowned self] (data, response, error) in
             
