@@ -1,91 +1,107 @@
-# NetworkStack [![Language](https://img.shields.io/badge/swift-3.0-orange.svg)](http://swift.org)
+# NetworkStack [![Language](https://img.shields.io/badge/swift-4.0-brightgreen.svg)](http://swift.org)
 Clean &amp; simple Swift networking stack
 
 ## About
 Full network client written in Swift without any external dependancies. Base code is under 200 LOC.
 The idea was to create an extendable and maintainable client that can be used to quickly create a network layer with minimal boilerplate.
-It was inspired by [Moya](https://github.com/Moya/Moya) just uses `URLSession` where Moya depends on `Alamofire`
+It was inspired by [Moya](https://github.com/Moya/Moya), it just uses `URLSession` where `Moya` depends on `Alamofire`
 
 ## Features
-- json parsing
 - mocking responses
-- response handling with the `enum Result<T: Serializable>` 
+- `enum Result<T>` response handling
+- endpoint modeling with the `Endpoint` protocol
+- json parsing
 - auto on/off network activity indicator
 
 ## Classes
 
 ### Types
-Base types used in the client. `Json` is the typealias for the standard json dictionary. `Serializable` protocol is implemented by objects that can be created from json. `.missing` is thrown when a required value is missing in the json response. Parser throws an `.invalid` error if the response is not valid json.
+Base types used in the client. `Result` enum used for responses, typealias callback with the `Result` and the custom errors thrown by the networking stack.
 
 ```swift
-typealias Json = [String: Any]
-
-protocol Serializable {
-    init?(json: [String: Any]) throws
+enum Result<T> {
+    case success(T)
+    case error(Error)
 }
 
-enum Result<T: Serializable> {
-    case success([T])
-    case error(Error?)
-}
+typealias ResultCallback<T> = (Result<T>) -> Void
 
 enum NetworkStackError: Error {
-    case missing(String)
-    case invalid(String, Any?)
+    case invalidRequest
+    case dataMissing
+    case mockMissing
 }
 ```
 
-### Webservice 
-Singleton instance for creating web requests and mocked requests. 
+### Webservice
+Webservice class is used for creating web requests and mocking requests.
 Also handles the network activity indicator, calls the parser and makes sure the callback happens on the main thread.
 
 ```swift
-class Webservice {
-    static let sharedInstance = Webservice()
-    
-    private var urlSession = URLSession()
-    
+
+protocol WebserviceProtocol {
+    func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>)
+}
+
+class Webservice: WebserviceProtocol {
+
+    private let urlSession: URLSession
+    private let parser: Parser
+
     private var networkActivityCount: Int = 0 {
         didSet {
             UIApplication.shared.isNetworkActivityIndicatorVisible = (networkActivityCount > 0)
         }
     }
-    
-    init() {
-        self.urlSession = URLSession(configuration: URLSessionConfiguration.default)
+
+    init(urlSession: URLSession = URLSession(configuration: URLSessionConfiguration.default),
+         parser: Parser = Parser()) {
+        self.urlSession = urlSession
+        self.parser = parser
     }
-    
-    func request<T>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
+
+    func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
+
         incrementNetworkActivity()
-        
-        let task = urlSession.dataTask(with: endpoint.request) { [unowned self] (data, response, error) in
-            
+
+        guard let request = endpoint.request else {
+            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.invalidRequest)) })
+            return
+        }
+
+        let task = urlSession.dataTask(with: request) { [unowned self] (data, response, error) in
+
             self.decrementNetworkActivity()
-            
-            guard let data = data else {
+
+            if let error = error {
                 OperationQueue.main.addOperation({ completition(.error(error)) })
                 return
             }
-            
-            Parser.json(data: data, completition: completition)
+
+            guard let data = data else {
+                OperationQueue.main.addOperation({ completition(.error(NetworkStackError.dataMissing)) })
+                return
+            }
+
+            self.parser.json(data: data, completition: completition)
         }
-        
+
         task.resume()
     }
-    
-    func mockRequest<T>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
-        guard let data = endpoint.mockData else {
-            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.invalid("No mock data", nil))) })
+
+    func mockRequest<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
+        guard let data = endpoint.mockData() else {
+            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.mockMissing)) })
             return
         }
-        
-        Parser.json(data: data, completition: completition)
+
+        parser.json(data: data, completition: completition)
     }
-    
+
     private func incrementNetworkActivity() {
         OperationQueue.main.addOperation({ self.networkActivityCount += 1 })
     }
-    
+
     private func decrementNetworkActivity() {
         OperationQueue.main.addOperation({ self.networkActivityCount -= 1 })
     }
@@ -93,80 +109,91 @@ class Webservice {
 ```
 
 ### Parser
-Called from the `Webservice`, parses the `Data` response and and calls the result callback. It can parse `Array` and `Dictionary` root json objects.
+Called from the `Webservice`, parses the `Data` response and and calls the result callback.
 
 ```swift
-class Parser {
-    class func json<T>(data: Data, completition: @escaping ResultCallback<T>) {
-        
+protocol ParserProtocol {
+    func json<T: Decodable>(data: Data, completition: @escaping ResultCallback<T>)
+}
+
+struct Parser {
+
+    func json<T: Decodable>(data: Data, completition: @escaping ResultCallback<T>) {
         do {
-            let json = try JSONSerialization.jsonObject(with: data, options: [])
-            
-            dump(json)
-            
-            if let jsonArray = json as? [Json] {
-                let results: [T] = try parseArray(jsonArray)
-                OperationQueue.main.addOperation { completition(.success(results)) }
-            } else if let jsonDict = json as? Json {
-                let result: T = try parseDictionary(jsonDict)
-                OperationQueue.main.addOperation { completition(.success([result])) }
-            } else {
-                OperationQueue.main.addOperation { completition(.error(NetworkStackError.invalid("Not a JSON array", json))) }
-            }
+            let result: T = try JSONDecoder().decode(T.self, from: data)
+            OperationQueue.main.addOperation { completition(.success(result)) }
+
         } catch let parseError {
-            dump(parseError)
-            
             OperationQueue.main.addOperation { completition(.error(parseError)) }
         }
     }
-    
-    private class func parseArray<T: Serializable>(_ jsonArray: [Json]) throws -> [T] {
-        var results: [T] = []
-        for jsonDict in jsonArray {
-            if let entity = try T(json: jsonDict) {
-                results.append(entity)
-            }
-        }
-        return results
-    }
-    
-    private class func parseDictionary<T: Serializable>(_ jsonDict: Json) throws -> T {
-        if let entity = try T(json: jsonDict) {
-            return entity
-        }
-        
-        throw NetworkStackError.invalid("Cannot create entity from dictionary", jsonDict)
-    }
 }
+
 ```
 
 ### Endpoint
-Base protocol that specific endpoint enums implement. An endpoint enum is passed to the `Webservice` when creating a request.
+Base protocol that specific endpoint enum implementation. An endpoint enum is passed to the `Webservice` when creating a request.
 
 ```swift
 protocol Endpoint {
-    var baseUrl: URL { get }
-    var request: URLRequest { get }
+    var request: URLRequest? { get }
     var httpMethod: String { get }
-    var mockData: Data? { get }
     var queryItems: [URLQueryItem]? { get }
+    var scheme: String { get }
+    var host: String { get }
+    var mockFilename: String? { get }
+    var mockExtension: String? { get }
 }
 
 extension Endpoint {
-    internal func requestForEndpoint(_ endpoint: String) -> URLRequest {
-        let url = URL(string: endpoint, relativeTo: baseUrl)!
-        var urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: true)!
-        urlComponents.queryItems = self.queryItems
-        var request = URLRequest(url: urlComponents.url!)
-        request.httpMethod = self.httpMethod
-        return request
+    func request(forEndpoint endpoint: String) -> URLRequest? {
+
+        var urlComponents = URLComponents()
+        urlComponents.scheme = scheme
+        urlComponents.host = host
+        urlComponents.path = endpoint
+        urlComponents.queryItems = queryItems
+
+        guard let url = urlComponents.url else { return nil }
+
+        return URLRequest(url: url)
+    }
+
+    func mockData() -> Data? {
+        guard let mockFileUrl = Bundle.main.url(forResource: mockFilename, withExtension: mockExtension),
+            let mockData = try? Data(contentsOf: mockFileUrl) else {
+                return nil
+        }
+        return mockData
+    }
+}
+
+extension Endpoint {
+    var scheme: String {
+        return "http"
+    }
+
+    var host: String {
+        return "www.mocky.io"
+    }
+
+    var queryItems: [URLQueryItem]? {
+        return nil
+    }
+
+    var mockFilename: String? {
+       return  nil
+    }
+
+    var mockExtension: String? {
+        return "json"
     }
 }
 ```
 
 ### UserEndpoint
-Example implementation of the `Endpoint protocol. Implements two methods: `.all` for fetching all users and `.get(userId)` for fetching a specific user.
- 
+Example implementation of the `Endpoint protocol`. Implements two methods: `.all` for fetching all users and `.get(userId)` for fetching a specific user.
+
  ```swift
  enum UserEndpoint {
     case all
@@ -174,17 +201,16 @@ Example implementation of the `Endpoint protocol. Implements two methods: `.all`
 }
 
 extension UserEndpoint: Endpoint {
-    var baseUrl: URL { return URL(string: "http://www.mocky.io")! }
-    
-    var request: URLRequest {
+
+    var request: URLRequest? {
         switch self {
         case .all:
-            return requestForEndpoint("/v2/58177efc1000008c01cc7fc2")
+            return request(forEndpoint: "/v2/58177efc1000008c01cc7fc2")
         case .get(_):
-            return requestForEndpoint("/v2/58177ddc1000008901cc7fbf")
+            return request(forEndpoint: "/v2/58177ddc1000008901cc7fbf")
         }
     }
-    
+
     var httpMethod: String {
         switch self {
         case .all:
@@ -193,7 +219,7 @@ extension UserEndpoint: Endpoint {
             return "GET"
         }
     }
-    
+
     var queryItems: [URLQueryItem]? {
         switch self {
         case .all:
@@ -202,54 +228,35 @@ extension UserEndpoint: Endpoint {
             return [URLQueryItem(name: "userId", value: String(userId))]
         }
     }
-    
-    var mockData: Data? {
+
+    var mockFilename: String? {
         switch self {
         case .all:
-            return "[{\"id\":2, \"username\": \"AndrejKolar2\", \"email\": \"andrej.kolar@clevertech.biz\"}]".data(using: String.Encoding.utf8)
+            return "users"
         case .get( _):
-            return "{\"id\":3, \"username\": \"AndrejKolar_Dict\", \"email\": \"andrej.kolar@clevertech.biz\"}".data(using: String.Encoding.utf8)
+            return "user"
         }
     }
 }
 ```
- 
+
 ### User
 Example of the entity model that the parser creates from the `Data` json.
-Implements the `Serializable` protocol that has the constructor with the json param.
 
 ```swift
-struct User: Serializable {
+struct User: Codable {
     let id: Int
     let username: String
     let email: String
-    
-    init(json: Json) throws {
-        guard let id = json["id"] as? Int else {
-            throw NetworkStackError.missing("id")
-        }
-        
-        guard let username = json["username"] as? String else {
-            throw NetworkStackError.missing("username")
-        }
-        
-        guard let email = json["email"] as? String else {
-            throw NetworkStackError.missing("email")
-        }
-        
-        self.id  = id
-        self.username = username
-        self.email = email
-    }
 }
 ```
 ## Example
 Fetch a Webservice intance and create 2 normal request and one mock request.
 
 ```swift
-let webservice = Webservice.sharedInstance
+let webservice = Webservice()
 
-webservice.request(UserEndpoint.all) { (result: Result<User>) in
+webservice.request(UserEndpoint.all) { (result: Result<[User]>) in
     switch result {
     case .error(let error):
         dump(error)
@@ -268,6 +275,15 @@ webservice.request(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
 }
 
 webservice.mockRequest(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
+    switch result {
+    case .error(let error):
+        dump(error)
+    case .success(let users):
+        dump(users)
+    }
+}
+
+webservice.mockRequest(UserEndpoint.all) { (result: Result<[User]>) in
     switch result {
     case .error(let error):
         dump(error)

@@ -7,20 +7,18 @@ import PlaygroundSupport
 
 // Types
 
-typealias Json = [String: Any]
-
 enum Result<T> {
     case success(T)
     case error(Error)
 }
+
+typealias ResultCallback<T> = (Result<T>) -> Void
 
 enum NetworkStackError: Error {
     case invalidRequest
     case dataMissing
     case mockMissing
 }
-
-typealias ResultCallback<T> = (Result<T>) -> Void
 
 // Webservice
 
@@ -212,11 +210,6 @@ extension UserEndpoint: Endpoint {
             return "user"
         }
     }
-}
-
-struct TestEndpoint: Endpoint {
-    var request: URLRequest?
-    var httpMethod: String
 }
 
 // User
