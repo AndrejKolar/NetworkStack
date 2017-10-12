@@ -6,6 +6,7 @@ import UIKit
 import PlaygroundSupport
 
 // Types
+
 typealias Json = [String: Any]
 
 enum Result<T> {
@@ -14,6 +15,7 @@ enum Result<T> {
 }
 
 enum NetworkStackError: Error {
+    case invalidRequest
     case dataMissing
     case mockMissing
 }
@@ -43,12 +45,16 @@ class Webservice: WebserviceProtocol {
         self.parser = parser
     }
     
-    
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
         
         incrementNetworkActivity()
         
-        let task = urlSession.dataTask(with: endpoint.request) { [unowned self] (data, response, error) in
+        guard let request = endpoint.request else {
+            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.invalidRequest)) })
+            return
+        }
+        
+        let task = urlSession.dataTask(with: request) { [unowned self] (data, response, error) in
             
             self.decrementNetworkActivity()
             
@@ -108,30 +114,57 @@ struct Parser {
 // Endpoint
 
 protocol Endpoint {
-    var baseUrl: URL { get }
-    var request: URLRequest { get }
+    var request: URLRequest? { get }
     var httpMethod: String { get }
     var queryItems: [URLQueryItem]? { get }
-    var mockFilename: String { get }
-    var mockExtension: String { get }
+    var scheme: String { get }
+    var host: String { get }
+    var mockFilename: String? { get }
+    var mockExtension: String? { get }
 }
 
 extension Endpoint {
-    internal func request(forEndpoint endpoint: String) -> URLRequest {
-        let url = URL(string: endpoint, relativeTo: baseUrl)!
-        var urlComponents = URLComponents(url: url, resolvingAgainstBaseURL: true)!
-        urlComponents.queryItems = self.queryItems
-        var request = URLRequest(url: urlComponents.url!)
-        request.httpMethod = self.httpMethod
-        return request
+    func request(forEndpoint endpoint: String) -> URLRequest? {
+        
+        var urlComponents = URLComponents()
+        urlComponents.scheme = scheme
+        urlComponents.host = host
+        urlComponents.path = endpoint
+        urlComponents.queryItems = queryItems
+        
+        guard let url = urlComponents.url else { return nil }
+        
+        return URLRequest(url: url)
     }
     
-    internal func mockData() -> Data? {
+    func mockData() -> Data? {
         guard let mockFileUrl = Bundle.main.url(forResource: mockFilename, withExtension: mockExtension),
             let mockData = try? Data(contentsOf: mockFileUrl) else {
                 return nil
         }
         return mockData
+    }
+}
+
+extension Endpoint {
+    var scheme: String {
+        return "http"
+    }
+    
+    var host: String {
+        return "www.mocky.io"
+    }
+    
+    var queryItems: [URLQueryItem]? {
+        return nil
+    }
+    
+    var mockFilename: String? {
+       return  nil
+    }
+    
+    var mockExtension: String? {
+        return "json"
     }
 }
 
@@ -143,9 +176,8 @@ enum UserEndpoint {
 }
 
 extension UserEndpoint: Endpoint {
-    internal var baseUrl: URL { return URL(string: "http://www.mocky.io")! }
     
-    var request: URLRequest {
+    var request: URLRequest? {
         switch self {
         case .all:
             return request(forEndpoint: "/v2/58177efc1000008c01cc7fc2")
@@ -154,7 +186,7 @@ extension UserEndpoint: Endpoint {
         }
     }
     
-    internal var httpMethod: String {
+    var httpMethod: String {
         switch self {
         case .all:
             return "GET"
@@ -163,7 +195,7 @@ extension UserEndpoint: Endpoint {
         }
     }
     
-    internal var queryItems: [URLQueryItem]? {
+    var queryItems: [URLQueryItem]? {
         switch self {
         case .all:
             return nil
@@ -172,7 +204,7 @@ extension UserEndpoint: Endpoint {
         }
     }
     
-    internal var mockFilename: String {
+    var mockFilename: String? {
         switch self {
         case .all:
             return "users"
@@ -180,10 +212,11 @@ extension UserEndpoint: Endpoint {
             return "user"
         }
     }
-    
-    internal var mockExtension: String {
-        return "json"
-    }
+}
+
+struct TestEndpoint: Endpoint {
+    var request: URLRequest?
+    var httpMethod: String
 }
 
 // User
