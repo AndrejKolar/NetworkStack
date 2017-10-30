@@ -251,7 +251,7 @@ struct User: Codable {
 }
 ```
 ## Example
-Fetch a Webservice intance and create 2 normal request and one mock request.
+Create a Webservice instance and use it to create two normal requests and two mock requests.
 
 ```swift
 let webservice = Webservice()
