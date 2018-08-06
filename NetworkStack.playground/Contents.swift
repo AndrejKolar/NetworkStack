@@ -108,10 +108,11 @@ protocol ParserProtocol {
 }
 
 struct Parser {
-
+    let jsonDecoder = JSONDecoder()
+    
     func json<T: Decodable>(data: Data, completition: @escaping ResultCallback<T>) {
         do {
-            let result: T = try JSONDecoder().decode(T.self, from: data)
+            let result: T = try jsonDecoder.decode(T.self, from: data)
             OperationQueue.main.addOperation { completition(.success(result)) }
             
         } catch let parseError {
