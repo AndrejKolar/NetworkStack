@@ -27,20 +27,16 @@ protocol WebserviceProtocol {
 }
 
 class Webservice: WebserviceProtocol {
-    
     private let urlSession: URLSession
     private let parser: Parser
-    
-    private var networkActivityCount: Int = 0 {
-        didSet {
-            UIApplication.shared.isNetworkActivityIndicatorVisible = (networkActivityCount > 0)
-        }
-    }
+    private let networkActivity: NetworkActivityProtocol
     
     init(urlSession: URLSession = URLSession(configuration: URLSessionConfiguration.default),
-         parser: Parser = Parser()) {
+         parser: Parser = Parser(),
+         networkActivity: NetworkActivityProtocol = NetworkActivity()) {
         self.urlSession = urlSession
         self.parser = parser
+        self.networkActivity = networkActivity
     }
     
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
@@ -50,11 +46,11 @@ class Webservice: WebserviceProtocol {
             return
         }
         
-        incrementNetworkActivity()
+        networkActivity.increment()
         
         let task = urlSession.dataTask(with: request) { [unowned self] (data, response, error) in
             
-            self.decrementNetworkActivity()
+            self.networkActivity.decrement()
             
             if let error = error {
                 OperationQueue.main.addOperation({ completition(.error(error)) })
@@ -80,13 +76,28 @@ class Webservice: WebserviceProtocol {
         
         parser.json(data: data, completition: completition)
     }
-    
-    private func incrementNetworkActivity() {
-        OperationQueue.main.addOperation({ self.networkActivityCount += 1 })
+}
+
+// Network Activity
+
+protocol NetworkActivityProtocol {
+    func increment()
+    func decrement()
+}
+
+class NetworkActivity: NetworkActivityProtocol {
+    private var activityCount: Int = 0 {
+        didSet {
+            UIApplication.shared.isNetworkActivityIndicatorVisible = (activityCount > 0)
+        }
     }
     
-    private func decrementNetworkActivity() {
-        OperationQueue.main.addOperation({ self.networkActivityCount -= 1 })
+    func increment() {
+        OperationQueue.main.addOperation({ self.activityCount += 1 })
+    }
+    
+    func decrement() {
+        OperationQueue.main.addOperation({ self.activityCount -= 1 })
     }
 }
 
