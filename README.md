@@ -1,12 +1,15 @@
 # NetworkStack [![Language](https://img.shields.io/badge/swift-4.0-brightgreen.svg)](http://swift.org)
+
 Clean &amp; simple Swift networking stack
 
 ## About
+
 Full network client written in Swift without any external dependancies. Base code is under 200 LOC.
 The idea was to create an extendable and maintainable client that can be used to quickly create a network layer with minimal boilerplate.
 It was inspired by [Moya](https://github.com/Moya/Moya), it just uses `URLSession` where `Moya` depends on `Alamofire`
 
 ## Features
+
 - mocking responses
 - `enum Result<T>` response handling
 - endpoint modeling with the `Endpoint` protocol
@@ -16,6 +19,7 @@ It was inspired by [Moya](https://github.com/Moya/Moya), it just uses `URLSessio
 ## Classes
 
 ### Types
+
 Base types used in the client. `Result` enum used for responses, typealias callback with the `Result` and the custom errors thrown by the networking stack.
 
 ```swift
@@ -34,30 +38,26 @@ enum NetworkStackError: Error {
 ```
 
 ### Webservice
+
 Webservice class is used for creating web requests and mocking requests.
 Also handles the network activity indicator, calls the parser and makes sure the callback happens on the main thread.
 
 ```swift
-
 protocol WebserviceProtocol {
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>)
 }
 
 class Webservice: WebserviceProtocol {
-
     private let urlSession: URLSession
     private let parser: Parser
-
-    private var networkActivityCount: Int = 0 {
-        didSet {
-            UIApplication.shared.isNetworkActivityIndicatorVisible = (networkActivityCount > 0)
-        }
-    }
+    private let networkActivity: NetworkActivityProtocol
 
     init(urlSession: URLSession = URLSession(configuration: URLSessionConfiguration.default),
-         parser: Parser = Parser()) {
+         parser: Parser = Parser(),
+         networkActivity: NetworkActivityProtocol = NetworkActivity()) {
         self.urlSession = urlSession
         self.parser = parser
+        self.networkActivity = networkActivity
     }
 
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
@@ -67,11 +67,11 @@ class Webservice: WebserviceProtocol {
             return
         }
 
-        incrementNetworkActivity()
+        networkActivity.increment()
 
         let task = urlSession.dataTask(with: request) { [unowned self] (data, response, error) in
 
-            self.decrementNetworkActivity()
+            self.networkActivity.decrement()
 
             if let error = error {
                 OperationQueue.main.addOperation({ completition(.error(error)) })
@@ -97,18 +97,38 @@ class Webservice: WebserviceProtocol {
 
         parser.json(data: data, completition: completition)
     }
+}
+```
 
-    private func incrementNetworkActivity() {
-        OperationQueue.main.addOperation({ self.networkActivityCount += 1 })
+### Network Activity
+
+Service that handles the network activity indicator
+
+```swift
+protocol NetworkActivityProtocol {
+    func increment()
+    func decrement()
+}
+
+class NetworkActivity: NetworkActivityProtocol {
+    private var activityCount: Int = 0 {
+        didSet {
+            UIApplication.shared.isNetworkActivityIndicatorVisible = (activityCount > 0)
+        }
     }
 
-    private func decrementNetworkActivity() {
-        OperationQueue.main.addOperation({ self.networkActivityCount -= 1 })
+    func increment() {
+        OperationQueue.main.addOperation({ self.activityCount += 1 })
+    }
+
+    func decrement() {
+        OperationQueue.main.addOperation({ self.activityCount -= 1 })
     }
 }
 ```
 
 ### Parser
+
 Called from the `Webservice`, parses the `Data` response and and calls the result callback.
 
 ```swift
@@ -128,10 +148,10 @@ struct Parser {
         }
     }
 }
-
 ```
 
 ### Endpoint
+
 Base protocol that specific endpoint enum implementation. An endpoint enum is passed to the `Webservice` when creating a request.
 
 ```swift
@@ -192,55 +212,57 @@ extension Endpoint {
 ```
 
 ### UserEndpoint
+
 Example implementation of the `Endpoint protocol`. Implements two methods: `.all` for fetching all users and `.get(userId)` for fetching a specific user.
 
- ```swift
- enum UserEndpoint {
-    case all
-    case get(userId: Int)
+```swift
+enum UserEndpoint {
+   case all
+   case get(userId: Int)
 }
 
 extension UserEndpoint: Endpoint {
 
-    var request: URLRequest? {
-        switch self {
-        case .all:
-            return request(forEndpoint: "/v2/58177efc1000008c01cc7fc2")
-        case .get(_):
-            return request(forEndpoint: "/v2/58177ddc1000008901cc7fbf")
-        }
-    }
+   var request: URLRequest? {
+       switch self {
+       case .all:
+           return request(forEndpoint: "/v2/58177efc1000008c01cc7fc2")
+       case .get(_):
+           return request(forEndpoint: "/v2/58177ddc1000008901cc7fbf")
+       }
+   }
 
-    var httpMethod: String {
-        switch self {
-        case .all:
-            return "GET"
-        case .get( _):
-            return "GET"
-        }
-    }
+   var httpMethod: String {
+       switch self {
+       case .all:
+           return "GET"
+       case .get( _):
+           return "GET"
+       }
+   }
 
-    var queryItems: [URLQueryItem]? {
-        switch self {
-        case .all:
-            return nil
-        case .get(let userId):
-            return [URLQueryItem(name: "userId", value: String(userId))]
-        }
-    }
+   var queryItems: [URLQueryItem]? {
+       switch self {
+       case .all:
+           return nil
+       case .get(let userId):
+           return [URLQueryItem(name: "userId", value: String(userId))]
+       }
+   }
 
-    var mockFilename: String? {
-        switch self {
-        case .all:
-            return "users"
-        case .get( _):
-            return "user"
-        }
-    }
+   var mockFilename: String? {
+       switch self {
+       case .all:
+           return "users"
+       case .get( _):
+           return "user"
+       }
+   }
 }
 ```
 
 ### User
+
 Example of the entity model that the parser creates from the `Data` json.
 
 ```swift
@@ -250,7 +272,9 @@ struct User: Codable {
     let email: String
 }
 ```
+
 ## Example
+
 Create a Webservice instance and use it to create two normal requests and two mock requests.
 
 ```swift
