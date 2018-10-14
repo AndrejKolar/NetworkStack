@@ -141,10 +141,15 @@ extension Endpoint {
         urlComponents.host = host
         urlComponents.path = endpoint
         urlComponents.queryItems = queryItems
-        
         guard let url = urlComponents.url else { return nil }
-        
-        return URLRequest(url: url)
+        var request = URLRequest(url: url)
+        request.httpMethod = httpMethod
+        if let httpHeaders = httpHeaders {
+            for (key,value) in httpHeaders {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
+        }
+        return request
     }
     
     func mockData() -> Data? {
@@ -169,8 +174,12 @@ extension Endpoint {
         return nil
     }
     
+    var httpHeaders: [String: String]? {
+        return nil
+    }
+    
     var mockFilename: String? {
-       return  nil
+        return  nil
     }
     
     var mockExtension: String? {
@@ -211,6 +220,16 @@ extension UserEndpoint: Endpoint {
             return nil
         case .get(let userId):
             return [URLQueryItem(name: "userId", value: String(userId))]
+        }
+    }
+    
+    var httpHeaders: [String: String]? {
+        let defaultHeaders: [String: String] = [:]
+        switch self {
+        case .all:
+            return defaultHeaders
+        case .get(let userId):
+            return defaultHeaders
         }
     }
     
