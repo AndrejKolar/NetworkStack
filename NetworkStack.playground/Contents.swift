@@ -121,11 +121,25 @@ struct Parser {
     }
 }
 
+// HTTP Method
+
+enum HTTPMethod: String {
+    case get = "GET"
+    case head = "HEAD"
+    case post = "POST"
+    case put = "PUT"
+    case delete = "DELETE"
+    case trace = "TRACE"
+    case options = "OPTIONS"
+    case connect = "CONNECT"
+    case patch = "PATCH"
+}
+
 // Endpoint
 
 protocol Endpoint {
     var request: URLRequest? { get }
-    var httpMethod: String { get }
+    var httpMethod: HTTPMethod { get }
     var queryItems: [URLQueryItem]? { get }
     var scheme: String { get }
     var host: String { get }
@@ -143,7 +157,7 @@ extension Endpoint {
         urlComponents.queryItems = queryItems
         guard let url = urlComponents.url else { return nil }
         var request = URLRequest(url: url)
-        request.httpMethod = httpMethod
+        request.httpMethod = httpMethod.rawValue
         if let httpHeaders = httpHeaders {
             for (key,value) in httpHeaders {
                 request.setValue(value, forHTTPHeaderField: key)
@@ -205,12 +219,12 @@ extension UserEndpoint: Endpoint {
         }
     }
     
-    var httpMethod: String {
+    var httpMethod: HTTPMethod {
         switch self {
         case .all:
-            return "GET"
+            return .get
         case .get( _):
-            return "GET"
+            return .get
         }
     }
     
