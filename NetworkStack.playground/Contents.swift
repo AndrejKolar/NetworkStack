@@ -20,13 +20,13 @@ enum NetworkStackError: Error {
     case mockMissing
 }
 
-// Webservice
+// WebService
 
-protocol WebserviceProtocol {
+protocol WebServiceProtocol {
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>)
 }
 
-class Webservice: WebserviceProtocol {
+class WebService: WebServiceProtocol {
     private let urlSession: URLSession
     private let parser: Parser
     private let networkActivity: NetworkActivityProtocol
@@ -67,8 +67,17 @@ class Webservice: WebserviceProtocol {
         
         task.resume()
     }
+}
+
+class MockWebService: WebServiceProtocol {
+    private let parser: Parser
     
-    func mockRequest<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
+    init(parser: Parser = Parser()) {
+        self.parser = parser
+    }
+    
+    func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
+        
         guard let data = endpoint.mockData() else {
             OperationQueue.main.addOperation({ completition(.error(NetworkStackError.mockMissing)) })
             return
@@ -163,11 +172,11 @@ extension Endpoint {
 
 extension Endpoint {
     var scheme: String {
-        return "http"
+        return "https"
     }
     
     var host: String {
-        return "www.mocky.io"
+        return "jsonplaceholder.typicode.com"
     }
     
     var queryItems: [URLQueryItem]? {
@@ -199,9 +208,9 @@ extension UserEndpoint: Endpoint {
     var request: URLRequest? {
         switch self {
         case .all:
-            return request(forEndpoint: "/v2/58177efc1000008c01cc7fc2")
-        case .get(_):
-            return request(forEndpoint: "/v2/58177ddc1000008901cc7fbf")
+            return request(forEndpoint: "/users")
+        case .get(let userId):
+            return request(forEndpoint: "/users/\(userId)")
         }
     }
     
@@ -257,9 +266,10 @@ PlaygroundPage.current.needsIndefiniteExecution = true
 
 // Run
 
-let webservice = Webservice()
+let webService = WebService()
+let mockWebService = MockWebService()
 
-webservice.request(UserEndpoint.all) { (result: Result<[User]>) in
+webService.request(UserEndpoint.all) { (result: Result<[User]>) in
     switch result {
     case .error(let error):
         dump(error)
@@ -268,7 +278,7 @@ webservice.request(UserEndpoint.all) { (result: Result<[User]>) in
     }
 }
 
-webservice.request(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
+webService.request(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
     switch result {
     case .error(let error):
         dump(error)
@@ -277,7 +287,7 @@ webservice.request(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
     }
 }
 
-webservice.mockRequest(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
+mockWebService.request(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
     switch result {
     case .error(let error):
         dump(error)
@@ -286,7 +296,7 @@ webservice.mockRequest(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
     }
 }
 
-webservice.mockRequest(UserEndpoint.all) { (result: Result<[User]>) in
+mockWebService.request(UserEndpoint.all) { (result: Result<[User]>) in
     switch result {
     case .error(let error):
         dump(error)
