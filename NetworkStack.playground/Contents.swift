@@ -17,7 +17,8 @@ typealias ResultCallback<T> = (Result<T>) -> Void
 enum NetworkStackError: Error {
     case invalidRequest
     case dataMissing
-    case mockMissing
+    case endpointNotMocked
+    case mockDataMissing
 }
 
 // WebService
@@ -69,6 +70,8 @@ class WebService: WebServiceProtocol {
     }
 }
 
+// Mock WebService
+
 class MockWebService: WebServiceProtocol {
     private let parser: Parser
     
@@ -78,8 +81,13 @@ class MockWebService: WebServiceProtocol {
     
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
         
+        guard let endpoint = endpoint as? MockEndpoint else {
+            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.endpointNotMocked)) })
+            return
+        }
+        
         guard let data = endpoint.mockData() else {
-            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.mockMissing)) })
+            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.mockDataMissing)) })
             return
         }
         
@@ -135,11 +143,10 @@ struct Parser {
 protocol Endpoint {
     var request: URLRequest? { get }
     var httpMethod: String { get }
+    var httpHeaders: [String : String]? { get }
     var queryItems: [URLQueryItem]? { get }
     var scheme: String { get }
     var host: String { get }
-    var mockFilename: String? { get }
-    var mockExtension: String? { get }
 }
 
 extension Endpoint {
@@ -153,20 +160,14 @@ extension Endpoint {
         guard let url = urlComponents.url else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = httpMethod
+        
         if let httpHeaders = httpHeaders {
-            for (key,value) in httpHeaders {
+            for (key, value) in httpHeaders {
                 request.setValue(value, forHTTPHeaderField: key)
             }
         }
+        
         return request
-    }
-    
-    func mockData() -> Data? {
-        guard let mockFileUrl = Bundle.main.url(forResource: mockFilename, withExtension: mockExtension),
-            let mockData = try? Data(contentsOf: mockFileUrl) else {
-                return nil
-        }
-        return mockData
     }
 }
 
@@ -186,7 +187,27 @@ extension Endpoint {
     var httpHeaders: [String: String]? {
         return nil
     }
-    
+}
+
+// Mock Endpoint
+
+protocol MockEndpoint: Endpoint {
+    var mockFilename: String? { get }
+    var mockExtension: String? { get }
+}
+
+
+extension MockEndpoint {
+    func mockData() -> Data? {
+        guard let mockFileUrl = Bundle.main.url(forResource: mockFilename, withExtension: mockExtension),
+            let mockData = try? Data(contentsOf: mockFileUrl) else {
+                return nil
+        }
+        return mockData
+    }
+}
+
+extension MockEndpoint {
     var mockFilename: String? {
         return  nil
     }
@@ -231,17 +252,21 @@ extension UserEndpoint: Endpoint {
             return [URLQueryItem(name: "userId", value: String(userId))]
         }
     }
-    
+
     var httpHeaders: [String: String]? {
-        let defaultHeaders: [String: String] = [:]
+        let headers: [String: String] = ["headerField" : "headerValue"]
         switch self {
-        case .all:
-            return defaultHeaders
-        case .get(let userId):
-            return defaultHeaders
+        case .all, .get( _):
+            return headers
         }
     }
     
+
+}
+
+// Mock UserEndpoint
+
+extension UserEndpoint: MockEndpoint {
     var mockFilename: String? {
         switch self {
         case .all:
