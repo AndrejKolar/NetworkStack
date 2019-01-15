@@ -94,6 +94,8 @@ class WebService: WebServiceProtocol {
 }
 ```
 
+### MockWebService
+
 The `MockWebService` implements the same `WebServiceProtocol`. It skips making the actual web request and returns json data directly from a `.json` file included with the project. Its useful for running tests or returning mocked responses until the backend endpoint is ready.
 
 ```swift
