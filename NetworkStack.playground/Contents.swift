@@ -171,24 +171,6 @@ extension Endpoint {
     }
 }
 
-extension Endpoint {
-    var scheme: String {
-        return "https"
-    }
-    
-    var host: String {
-        return "jsonplaceholder.typicode.com"
-    }
-    
-    var queryItems: [URLQueryItem]? {
-        return nil
-    }
-    
-    var httpHeaders: [String: String]? {
-        return nil
-    }
-}
-
 // Mock Endpoint
 
 protocol MockEndpoint: Endpoint {
@@ -208,12 +190,20 @@ extension MockEndpoint {
 }
 
 extension MockEndpoint {
-    var mockFilename: String? {
-        return  nil
-    }
-    
     var mockExtension: String? {
         return "json"
+    }
+}
+
+// Example
+
+extension Endpoint {
+    var scheme: String {
+        return "https"
+    }
+    
+    var host: String {
+        return "jsonplaceholder.typicode.com"
     }
 }
 
@@ -260,8 +250,6 @@ extension UserEndpoint: Endpoint {
             return headers
         }
     }
-    
-
 }
 
 // Mock UserEndpoint
