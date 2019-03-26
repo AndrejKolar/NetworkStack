@@ -4,16 +4,16 @@ Clean &amp; simple Swift networking stack
 
 ## About
 
-Full network client written in Swift without any external dependancies. Base code is around 200 LOC.
+Full network client is written in Swift without any external dependencies. The base code is around 200 LOC.
 The idea was to create an extendable and maintainable client that can be used to quickly create a network layer with minimal boilerplate.
 It was inspired by [Moya](https://github.com/Moya/Moya), it just uses `URLSession` where `Moya` depends on `Alamofire`
 
 ## Features
 
 - `enum Result<T>` response handling
-- dependancy injection
+- dependency injection
 - endpoint modeling with the `Endpoint` protocol
-- json parsing
+- JSON parsing
 - auto on/off network activity indicator
 - easy mocking and testing
 
@@ -43,7 +43,7 @@ enum NetworkStackError: Error {
 
 ### WebService
 
-The `WebService` class is used for making web requests. It implements the `WebServiceProtocol` which allows easy dependancy injection and testing. The request method takes an `Endpoint` enum and a `ResultCallback`. It automatically toggles the network activity indicator using the `NetworkActivty` service and parses the data response using the `Parser` service.
+The `WebService` class is used for making web requests. It implements the `WebServiceProtocol` which allows easy dependency injection and testing. The request method takes an `Endpoint` enum and a `ResultCallback`. It automatically toggles the network activity indicator using the `NetworkActivty` service and parses the data response using the `Parser` service.
 
 ```swift
 protocol WebServiceProtocol {
@@ -96,7 +96,7 @@ class WebService: WebServiceProtocol {
 
 ### MockWebService
 
-The `MockWebService` implements the same `WebServiceProtocol`. It skips making the actual web request and returns json data directly from a `.json` file included with the project. Its useful for running tests or returning mocked responses until the backend endpoint is ready.
+The `MockWebService` implements the same `WebServiceProtocol`. It skips making the actual web request and returns JSON data directly from a `.json` file included with the project. It is useful for running tests or returning mocked responses until the backend endpoint is ready.
 
 ```swift
 class MockWebService: WebServiceProtocol {
@@ -152,7 +152,7 @@ class NetworkActivity: NetworkActivityProtocol {
 
 ### Parser
 
-Called from the `Webservice`, parses the `Data` response and and calls the result callback with initialised data structs.
+Called from the `Webservice`, parses the `Data` response and calls the result callback with initialized data structs.
 
 ```swift
 protocol ParserProtocol {
@@ -176,7 +176,7 @@ struct Parser {
 
 ### Endpoint
 
-Base protocol that defines the data for a specific endpoint. An enum that implements the `Endpoint` protocol is passed to the `WebService` when creating a request.
+The base protocol that defines the data for a specific endpoint. An enum that implements the `Endpoint` protocol is passed to the `WebService` when creating a request.
 
 ```swift
 protocol Endpoint {
@@ -252,11 +252,11 @@ extension MockEndpoint {
 
 ## Example
 
-Example implementation of a single endpoint for fetching user data with two methods.
+An example implementation of a single endpoint for fetching user data with two methods.
 
 ### Shared values
 
-To set shared values between all the endpoints extend the base `Endpoint` enum. In this example we are seting the scheme and host for all endpoints.
+To set shared values between all the endpoints extend the base `Endpoint` enum. In this example, we are setting the scheme and host for all endpoints.
 
 ```swift
 extension Endpoint {
@@ -272,7 +272,7 @@ extension Endpoint {
 
 ### UserEndpoint
 
-Create the `UserEndpoint` for describing the users endpoint. The enum has one case for each endpoint method. `.all` fetches all users and `get(userId: Int)` is used to fetch an user with a specific id.
+Create the `UserEndpoint` for describing the users' endpoint. The enum has one case for each endpoint method. `.all` fetches all users and `get(userId: Int)` is used to fetch a user with a specific id.
 
 ```swift
 enum UserEndpoint {
@@ -281,7 +281,7 @@ enum UserEndpoint {
 }
 ```
 
-The extension of the `UserEndpoint` defines the values that will be used when converting the UserEndpoint enum case into a `URLRequest`. The `request` property defines the url, we also define the `httpMethod`, `queryItems` and `httpHeaders`.
+The extension of the `UserEndpoint` defines the values that will be used when converting the UserEndpoint enum case into a `URLRequest`. The `request` property defines the URL, we also define the `httpMethod`, `queryItems` and `httpHeaders`.
 
 ```swift
 extension UserEndpoint: Endpoint {
@@ -365,7 +365,7 @@ webService.request(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
 
 ### Setup
 
-Create two `.json` files with the responses we want to return and add them to the project. Also extend the `UserEndpoint` with the `MockEndpoint` protocol and set the filenames for the json response files.
+Create two `.json` files with the responses we want to return and add them to the project. Also, extend the `UserEndpoint` with the `MockEndpoint` protocol and set the filenames for the JSON response files.
 
 ```swift
 extension UserEndpoint: MockEndpoint {
