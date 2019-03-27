@@ -10,8 +10,8 @@ It was inspired by [Moya](https://github.com/Moya/Moya), it just uses `URLSessio
 
 ## Features
 
-- `enum Result<T>` response handling
-- dependency injection
+- `enum Result<T, Error>` response handling
+- dependancy injection
 - endpoint modeling with the `Endpoint` protocol
 - JSON parsing
 - auto on/off network activity indicator
@@ -23,15 +23,11 @@ Base code for the `NetworkStack` implementation.
 
 ### Types
 
-Base types used in the client. `Result` enum used for responses, typealias callback with the `Result` response and the custom errors thrown by the networking stack.
+Base types used in the client. Typealias callback with the `Result` response and the custom errors thrown by the networking stack.
 
 ```swift
-enum Result<T> {
-    case success(T)
-    case error(Error)
-}
 
-typealias ResultCallback<T> = (Result<T>) -> Void
+typealias ResultCallback<T> = (Result<T, Error>) -> Void
 
 enum NetworkStackError: Error {
     case invalidRequest
@@ -66,7 +62,7 @@ class WebService: WebServiceProtocol {
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
 
         guard let request = endpoint.request else {
-            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.invalidRequest)) })
+            OperationQueue.main.addOperation({ completition(.failure(NetworkStackError.invalidRequest)) })
             return
         }
 
@@ -77,12 +73,12 @@ class WebService: WebServiceProtocol {
             self.networkActivity.decrement()
 
             if let error = error {
-                OperationQueue.main.addOperation({ completition(.error(error)) })
+                OperationQueue.main.addOperation({ completition(.failure(error)) })
                 return
             }
 
             guard let data = data else {
-                OperationQueue.main.addOperation({ completition(.error(NetworkStackError.dataMissing)) })
+                OperationQueue.main.addOperation({ completition(.failure(NetworkStackError.dataMissing)) })
                 return
             }
 
@@ -109,12 +105,12 @@ class MockWebService: WebServiceProtocol {
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
 
         guard let endpoint = endpoint as? MockEndpoint else {
-            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.endpointNotMocked)) })
+            OperationQueue.main.addOperation({ completition(.failure(NetworkStackError.endpointNotMocked)) })
             return
         }
 
         guard let data = endpoint.mockData() else {
-            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.mockDataMissing)) })
+            OperationQueue.main.addOperation({ completition(.failure(NetworkStackError.mockDataMissing)) })
             return
         }
 
@@ -168,7 +164,7 @@ struct Parser {
             OperationQueue.main.addOperation { completition(.success(result)) }
 
         } catch let parseError {
-            OperationQueue.main.addOperation { completition(.error(parseError)) }
+            OperationQueue.main.addOperation { completition(.failure(parseError)) }
         }
     }
 }
@@ -342,18 +338,18 @@ Create a `WebService` object, call its request method and pass it an Endpoint en
 ```swift
 let webService = WebService()
 
-webService.request(UserEndpoint.all) { (result: Result<[User]>) in
+webService.request(UserEndpoint.all) { (result: Result<[User], Error>) in
     switch result {
-    case .error(let error):
+    case .failure(let error):
         dump(error)
     case .success(let users):
         dump(users)
     }
 }
 
-webService.request(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
+webService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, Error>) in
     switch result {
-    case .error(let error):
+    case .failure(let error):
         dump(error)
     case .success(let users):
         dump(users)
@@ -387,18 +383,18 @@ Create a `MockWebService` instance and call the request method exactly the same 
 ```swift
 let mockWebService = MockWebService()
 
-mockWebService.request(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
+mockWebService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, Error>) in
     switch result {
-    case .error(let error):
+    case .failure(let error):
         dump(error)
     case .success(let users):
         dump(users)
     }
 }
 
-mockWebService.request(UserEndpoint.all) { (result: Result<[User]>) in
+mockWebService.request(UserEndpoint.all) { (result: Result<[User], Error>) in
     switch result {
-    case .error(let error):
+    case .failure(let error):
         dump(error)
     case .success(let users):
         dump(users)
