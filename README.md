@@ -27,13 +27,15 @@ Base types used in the client. Typealias callback with the `Result` response and
 
 ```swift
 
-typealias ResultCallback<T> = (Result<T, Error>) -> Void
+typealias ResultCallback<T> = (Result<T, NetworkStackError>) -> Void
 
 enum NetworkStackError: Error {
     case invalidRequest
     case dataMissing
     case endpointNotMocked
     case mockDataMissing
+    case responseError(error: Error)
+    case parserError(error: Error)
 }
 ```
 
@@ -73,7 +75,7 @@ class WebService: WebServiceProtocol {
             self.networkActivity.decrement()
 
             if let error = error {
-                OperationQueue.main.addOperation({ completition(.failure(error)) })
+                OperationQueue.main.addOperation({ completition(.failure(.responseError(error: error))) })
                 return
             }
 
@@ -163,8 +165,8 @@ struct Parser {
             let result: T = try jsonDecoder.decode(T.self, from: data)
             OperationQueue.main.addOperation { completition(.success(result)) }
 
-        } catch let parseError {
-            OperationQueue.main.addOperation { completition(.failure(parseError)) }
+        } catch let error {
+            OperationQueue.main.addOperation { completition(.failure(.parserError(error: error))) }
         }
     }
 }
@@ -338,7 +340,7 @@ Create a `WebService` object, call its request method and pass it an Endpoint en
 ```swift
 let webService = WebService()
 
-webService.request(UserEndpoint.all) { (result: Result<[User], Error>) in
+webService.request(UserEndpoint.all) { (result: Result<[User], NetworkStackError>) in
     switch result {
     case .failure(let error):
         dump(error)
@@ -347,7 +349,7 @@ webService.request(UserEndpoint.all) { (result: Result<[User], Error>) in
     }
 }
 
-webService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, Error>) in
+webService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, NetworkStackError>) in
     switch result {
     case .failure(let error):
         dump(error)
@@ -383,7 +385,7 @@ Create a `MockWebService` instance and call the request method exactly the same 
 ```swift
 let mockWebService = MockWebService()
 
-mockWebService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, Error>) in
+mockWebService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, NetworkStackError>) in
     switch result {
     case .failure(let error):
         dump(error)
@@ -392,7 +394,7 @@ mockWebService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, Err
     }
 }
 
-mockWebService.request(UserEndpoint.all) { (result: Result<[User], Error>) in
+mockWebService.request(UserEndpoint.all) { (result: Result<[User], NetworkStackError>) in
     switch result {
     case .failure(let error):
         dump(error)

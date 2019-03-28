@@ -7,13 +7,15 @@ import PlaygroundSupport
 
 // Types
 
-typealias ResultCallback<T> = (Result<T, Error>) -> Void
+typealias ResultCallback<T> = (Result<T, NetworkStackError>) -> Void
 
 enum NetworkStackError: Error {
     case invalidRequest
     case dataMissing
     case endpointNotMocked
     case mockDataMissing
+    case responseError(error: Error)
+    case parserError(error: Error)
 }
 
 // WebService
@@ -49,7 +51,7 @@ class WebService: WebServiceProtocol {
             self.networkActivity.decrement()
             
             if let error = error {
-                OperationQueue.main.addOperation({ completition(.failure(error)) })
+                OperationQueue.main.addOperation({ completition(.failure(.responseError(error: error))) })
                 return
             }
             
@@ -127,8 +129,8 @@ struct Parser {
             let result: T = try jsonDecoder.decode(T.self, from: data)
             OperationQueue.main.addOperation { completition(.success(result)) }
             
-        } catch let parseError {
-            OperationQueue.main.addOperation { completition(.failure(parseError)) }
+        } catch let error {
+            OperationQueue.main.addOperation { completition(.failure(.parserError(error: error))) }
         }
     }
 }
@@ -277,7 +279,7 @@ PlaygroundPage.current.needsIndefiniteExecution = true
 let webService = WebService()
 let mockWebService = MockWebService()
 
-webService.request(UserEndpoint.all) { (result: Result<[User], Error>) in
+webService.request(UserEndpoint.all) { (result: Result<[User], NetworkStackError>) in
     switch result {
     case .failure(let error):
         dump(error)
@@ -286,7 +288,7 @@ webService.request(UserEndpoint.all) { (result: Result<[User], Error>) in
     }
 }
 
-webService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, Error>) in
+webService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, NetworkStackError>) in
     switch result {
     case .failure(let error):
         dump(error)
@@ -295,7 +297,7 @@ webService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, Error>)
     }
 }
 
-mockWebService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, Error>) in
+mockWebService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, NetworkStackError>) in
     switch result {
     case .failure(let error):
         dump(error)
@@ -304,7 +306,7 @@ mockWebService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, Err
     }
 }
 
-mockWebService.request(UserEndpoint.all) { (result: Result<[User], Error>) in
+mockWebService.request(UserEndpoint.all) { (result: Result<[User], NetworkStackError>) in
     switch result {
     case .failure(let error):
         dump(error)
