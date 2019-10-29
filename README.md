@@ -1,4 +1,4 @@
-# NetworkStack [![Language](https://img.shields.io/badge/swift-5.0-brightgreen.svg)](http://swift.org)
+# NetworkStack [![Language](https://img.shields.io/badge/swift-5.1-brightgreen.svg)](http://swift.org)
 
 Clean &amp; simple Swift networking stack
 
@@ -14,7 +14,7 @@ It was inspired by [Moya](https://github.com/Moya/Moya), it just uses `URLSessio
 - dependancy injection
 - endpoint modeling with the `Endpoint` protocol
 - JSON parsing
-- auto on/off network activity indicator
+- observable class for the network activity
 - easy mocking and testing
 
 ## Base code
@@ -123,27 +123,56 @@ class MockWebService: WebServiceProtocol {
 
 ### Network Activity
 
-Service that handles the network activity indicator
+Service that handles the network activity indicator. It implements the observer pattern using closures. An observing class can subscribe to state updates using the `observe` method and can toggle the network activity indicator.
 
 ```swift
+enum NetworkActivityState {
+    case show
+    case hide
+}
+
 protocol NetworkActivityProtocol {
     func increment()
     func decrement()
+    func observe(using closure: @escaping (NetworkActivityState) -> Void)
 }
 
 class NetworkActivity: NetworkActivityProtocol {
+    private var observations = [(NetworkActivityState) -> Void]()
+
     private var activityCount: Int = 0 {
         didSet {
-            UIApplication.shared.isNetworkActivityIndicatorVisible = (activityCount > 0)
+
+            if (activityCount < 0) {
+                activityCount = 0
+            }
+
+            if (oldValue > 0 && activityCount > 0) {
+                return
+            }
+
+            stateDidChange()
+        }
+    }
+
+    private func stateDidChange() {
+
+        let state = activityCount > 0 ? NetworkActivityState.show : NetworkActivityState.hide
+        observations.forEach { closure in
+             OperationQueue.main.addOperation({ closure(state) })
         }
     }
 
     func increment() {
-        OperationQueue.main.addOperation({ self.activityCount += 1 })
+        self.activityCount += 1
     }
 
     func decrement() {
-        OperationQueue.main.addOperation({ self.activityCount -= 1 })
+        self.activityCount -= 1
+    }
+
+    func observe(using closure: @escaping (NetworkActivityState) -> Void) {
+        observations.append(closure)
     }
 }
 ```
@@ -355,6 +384,24 @@ webService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, Network
         dump(error)
     case .success(let users):
         dump(users)
+    }
+}
+```
+
+### Network activity
+
+Use the `observe` method on the `NetworkActivity` service to subscribe to network activity changes and toggle the network activity indicator
+
+```swift
+let networkActivity = NetworkActivity()
+let webService = WebService(networkActivity: networkActivity)
+
+networkActivity.observe { state in
+    switch state {
+    case .show:
+        print("Network activity indicator: SHOW")
+    case .hide:
+        print("Network activity indicator: HIDE")
     }
 }
 ```
