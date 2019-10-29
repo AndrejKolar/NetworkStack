@@ -94,24 +94,53 @@ class MockWebService: WebServiceProtocol {
 
 // Network Activity
 
+enum NetworkActivityState {
+    case show
+    case hide
+}
+
 protocol NetworkActivityProtocol {
     func increment()
     func decrement()
+    func observe(using closure: @escaping (NetworkActivityState) -> Void)
 }
 
 class NetworkActivity: NetworkActivityProtocol {
+    private var observations = [(NetworkActivityState) -> Void]()
+    
     private var activityCount: Int = 0 {
         didSet {
-            UIApplication.shared.isNetworkActivityIndicatorVisible = (activityCount > 0)
+            
+            if (activityCount < 0) {
+                activityCount = 0
+            }
+            
+            if (oldValue > 0 && activityCount > 0) {
+                return
+            }
+            
+            stateDidChange()
+        }
+    }
+    
+    private func stateDidChange() {
+        
+        let state = activityCount > 0 ? NetworkActivityState.show : NetworkActivityState.hide
+        observations.forEach { closure in
+             OperationQueue.main.addOperation({ closure(state) })
         }
     }
     
     func increment() {
-        OperationQueue.main.addOperation({ self.activityCount += 1 })
+        self.activityCount += 1
     }
     
     func decrement() {
-        OperationQueue.main.addOperation({ self.activityCount -= 1 })
+        self.activityCount -= 1
+    }
+    
+    func observe(using closure: @escaping (NetworkActivityState) -> Void) {
+        observations.append(closure)
     }
 }
 
@@ -239,7 +268,7 @@ extension UserEndpoint: Endpoint {
             return [URLQueryItem(name: "userId", value: String(userId))]
         }
     }
-
+    
     var httpHeaders: [String: String]? {
         let headers: [String: String] = ["headerField" : "headerValue"]
         switch self {
@@ -276,8 +305,18 @@ PlaygroundPage.current.needsIndefiniteExecution = true
 
 // Run
 
-let webService = WebService()
+let networkActivity = NetworkActivity()
+let webService = WebService(networkActivity: networkActivity)
 let mockWebService = MockWebService()
+
+networkActivity.observe { state in
+    switch state {
+    case .show:
+        print("Network activity indicator: SHOW")
+    case .hide:
+        print("Network activity indicator: HIDE")
+    }
+}
 
 webService.request(UserEndpoint.all) { (result: Result<[User], NetworkStackError>) in
     switch result {
@@ -314,4 +353,3 @@ mockWebService.request(UserEndpoint.all) { (result: Result<[User], NetworkStackE
         dump(users)
     }
 }
-
