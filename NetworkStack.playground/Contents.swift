@@ -7,26 +7,24 @@ import PlaygroundSupport
 
 // Types
 
-enum Result<T> {
-    case success(T)
-    case error(Error)
-}
-
-typealias ResultCallback<T> = (Result<T>) -> Void
+typealias ResultCallback<T> = (Result<T, NetworkStackError>) -> Void
 
 enum NetworkStackError: Error {
     case invalidRequest
     case dataMissing
-    case mockMissing
+    case endpointNotMocked
+    case mockDataMissing
+    case responseError(error: Error)
+    case parserError(error: Error)
 }
 
-// Webservice
+// WebService
 
-protocol WebserviceProtocol {
+protocol WebServiceProtocol {
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>)
 }
 
-class Webservice: WebserviceProtocol {
+class WebService: WebServiceProtocol {
     private let urlSession: URLSession
     private let parser: Parser
     private let networkActivity: NetworkActivityProtocol
@@ -42,7 +40,7 @@ class Webservice: WebserviceProtocol {
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
         
         guard let request = endpoint.request else {
-            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.invalidRequest)) })
+            OperationQueue.main.addOperation({ completition(.failure(NetworkStackError.invalidRequest)) })
             return
         }
         
@@ -53,12 +51,12 @@ class Webservice: WebserviceProtocol {
             self.networkActivity.decrement()
             
             if let error = error {
-                OperationQueue.main.addOperation({ completition(.error(error)) })
+                OperationQueue.main.addOperation({ completition(.failure(.responseError(error: error))) })
                 return
             }
             
             guard let data = data else {
-                OperationQueue.main.addOperation({ completition(.error(NetworkStackError.dataMissing)) })
+                OperationQueue.main.addOperation({ completition(.failure(NetworkStackError.dataMissing)) })
                 return
             }
             
@@ -67,10 +65,26 @@ class Webservice: WebserviceProtocol {
         
         task.resume()
     }
+}
+
+// Mock WebService
+
+class MockWebService: WebServiceProtocol {
+    private let parser: Parser
     
-    func mockRequest<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
+    init(parser: Parser = Parser()) {
+        self.parser = parser
+    }
+    
+    func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
+        
+        guard let endpoint = endpoint as? MockEndpoint else {
+            OperationQueue.main.addOperation({ completition(.failure(NetworkStackError.endpointNotMocked)) })
+            return
+        }
+        
         guard let data = endpoint.mockData() else {
-            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.mockMissing)) })
+            OperationQueue.main.addOperation({ completition(.failure(NetworkStackError.mockDataMissing)) })
             return
         }
         
@@ -80,24 +94,53 @@ class Webservice: WebserviceProtocol {
 
 // Network Activity
 
+enum NetworkActivityState {
+    case show
+    case hide
+}
+
 protocol NetworkActivityProtocol {
     func increment()
     func decrement()
+    func observe(using closure: @escaping (NetworkActivityState) -> Void)
 }
 
 class NetworkActivity: NetworkActivityProtocol {
+    private var observations = [(NetworkActivityState) -> Void]()
+    
     private var activityCount: Int = 0 {
         didSet {
-            UIApplication.shared.isNetworkActivityIndicatorVisible = (activityCount > 0)
+            
+            if (activityCount < 0) {
+                activityCount = 0
+            }
+            
+            if (oldValue > 0 && activityCount > 0) {
+                return
+            }
+            
+            stateDidChange()
+        }
+    }
+    
+    private func stateDidChange() {
+        
+        let state = activityCount > 0 ? NetworkActivityState.show : NetworkActivityState.hide
+        observations.forEach { closure in
+             OperationQueue.main.addOperation({ closure(state) })
         }
     }
     
     func increment() {
-        OperationQueue.main.addOperation({ self.activityCount += 1 })
+        self.activityCount += 1
     }
     
     func decrement() {
-        OperationQueue.main.addOperation({ self.activityCount -= 1 })
+        self.activityCount -= 1
+    }
+    
+    func observe(using closure: @escaping (NetworkActivityState) -> Void) {
+        observations.append(closure)
     }
 }
 
@@ -115,8 +158,8 @@ struct Parser {
             let result: T = try jsonDecoder.decode(T.self, from: data)
             OperationQueue.main.addOperation { completition(.success(result)) }
             
-        } catch let parseError {
-            OperationQueue.main.addOperation { completition(.error(parseError)) }
+        } catch let error {
+            OperationQueue.main.addOperation { completition(.failure(.parserError(error: error))) }
         }
     }
 }
@@ -140,11 +183,10 @@ enum HTTPMethod: String {
 protocol Endpoint {
     var request: URLRequest? { get }
     var httpMethod: HTTPMethod { get }
+    var httpHeaders: [String : String]? { get }
     var queryItems: [URLQueryItem]? { get }
     var scheme: String { get }
     var host: String { get }
-    var mockFilename: String? { get }
-    var mockExtension: String? { get }
 }
 
 extension Endpoint {
@@ -159,13 +201,24 @@ extension Endpoint {
         var request = URLRequest(url: url)
         request.httpMethod = httpMethod.rawValue
         if let httpHeaders = httpHeaders {
-            for (key,value) in httpHeaders {
+            for (key, value) in httpHeaders {
                 request.setValue(value, forHTTPHeaderField: key)
             }
         }
+        
         return request
     }
-    
+}
+
+// Mock Endpoint
+
+protocol MockEndpoint: Endpoint {
+    var mockFilename: String? { get }
+    var mockExtension: String? { get }
+}
+
+
+extension MockEndpoint {
     func mockData() -> Data? {
         guard let mockFileUrl = Bundle.main.url(forResource: mockFilename, withExtension: mockExtension),
             let mockData = try? Data(contentsOf: mockFileUrl) else {
@@ -175,29 +228,21 @@ extension Endpoint {
     }
 }
 
+extension MockEndpoint {
+    var mockExtension: String? {
+        return "json"
+    }
+}
+
+// Example
+
 extension Endpoint {
     var scheme: String {
-        return "http"
+        return "https"
     }
     
     var host: String {
-        return "www.mocky.io"
-    }
-    
-    var queryItems: [URLQueryItem]? {
-        return nil
-    }
-    
-    var httpHeaders: [String: String]? {
-        return nil
-    }
-    
-    var mockFilename: String? {
-        return  nil
-    }
-    
-    var mockExtension: String? {
-        return "json"
+        return "jsonplaceholder.typicode.com"
     }
 }
 
@@ -213,9 +258,9 @@ extension UserEndpoint: Endpoint {
     var request: URLRequest? {
         switch self {
         case .all:
-            return request(forEndpoint: "/v2/58177efc1000008c01cc7fc2")
-        case .get(_):
-            return request(forEndpoint: "/v2/58177ddc1000008901cc7fbf")
+            return request(forEndpoint: "/users")
+        case .get(let userId):
+            return request(forEndpoint: "/users/\(userId)")
         }
     }
     
@@ -238,15 +283,17 @@ extension UserEndpoint: Endpoint {
     }
     
     var httpHeaders: [String: String]? {
-        let defaultHeaders: [String: String] = [:]
+        let headers: [String: String] = ["headerField" : "headerValue"]
         switch self {
-        case .all:
-            return defaultHeaders
-        case .get(let userId):
-            return defaultHeaders
+        case .all, .get( _):
+            return headers
         }
     }
-    
+}
+
+// Mock UserEndpoint
+
+extension UserEndpoint: MockEndpoint {
     var mockFilename: String? {
         switch self {
         case .all:
@@ -271,41 +318,51 @@ PlaygroundPage.current.needsIndefiniteExecution = true
 
 // Run
 
-let webservice = Webservice()
+let networkActivity = NetworkActivity()
+let webService = WebService(networkActivity: networkActivity)
+let mockWebService = MockWebService()
 
-webservice.request(UserEndpoint.all) { (result: Result<[User]>) in
+networkActivity.observe { state in
+    switch state {
+    case .show:
+        print("Network activity indicator: SHOW")
+    case .hide:
+        print("Network activity indicator: HIDE")
+    }
+}
+
+webService.request(UserEndpoint.all) { (result: Result<[User], NetworkStackError>) in
     switch result {
-    case .error(let error):
+    case .failure(let error):
         dump(error)
     case .success(let users):
         dump(users)
     }
 }
 
-webservice.request(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
+webService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, NetworkStackError>) in
     switch result {
-    case .error(let error):
+    case .failure(let error):
         dump(error)
     case .success(let users):
         dump(users)
     }
 }
 
-webservice.mockRequest(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
+mockWebService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, NetworkStackError>) in
     switch result {
-    case .error(let error):
+    case .failure(let error):
         dump(error)
     case .success(let users):
         dump(users)
     }
 }
 
-webservice.mockRequest(UserEndpoint.all) { (result: Result<[User]>) in
+mockWebService.request(UserEndpoint.all) { (result: Result<[User], NetworkStackError>) in
     switch result {
-    case .error(let error):
+    case .failure(let error):
         dump(error)
     case .success(let users):
         dump(users)
     }
 }
-

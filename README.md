@@ -1,53 +1,54 @@
-# NetworkStack [![Language](https://img.shields.io/badge/swift-4.0-brightgreen.svg)](http://swift.org)
+# NetworkStack [![Language](https://img.shields.io/badge/swift-5.1-brightgreen.svg)](http://swift.org)
 
 Clean &amp; simple Swift networking stack
 
 ## About
 
-Full network client written in Swift without any external dependancies. Base code is under 200 LOC.
+Full network client is written in Swift without any external dependencies. The base code is around 200 LOC.
 The idea was to create an extendable and maintainable client that can be used to quickly create a network layer with minimal boilerplate.
 It was inspired by [Moya](https://github.com/Moya/Moya), it just uses `URLSession` where `Moya` depends on `Alamofire`
 
 ## Features
 
-- mocking responses
-- `enum Result<T>` response handling
+- `enum Result<T, Error>` response handling
+- dependancy injection
 - endpoint modeling with the `Endpoint` protocol
-- json parsing
-- auto on/off network activity indicator
+- JSON parsing
+- observable class for the network activity
+- easy mocking and testing
 
-## Classes
+## Base code
+
+Base code for the `NetworkStack` implementation.
 
 ### Types
 
-Base types used in the client. `Result` enum used for responses, typealias callback with the `Result` and the custom errors thrown by the networking stack.
+Base types used in the client. Typealias callback with the `Result` response and the custom errors thrown by the networking stack.
 
 ```swift
-enum Result<T> {
-    case success(T)
-    case error(Error)
-}
 
-typealias ResultCallback<T> = (Result<T>) -> Void
+typealias ResultCallback<T> = (Result<T, NetworkStackError>) -> Void
 
 enum NetworkStackError: Error {
     case invalidRequest
     case dataMissing
-    case mockMissing
+    case endpointNotMocked
+    case mockDataMissing
+    case responseError(error: Error)
+    case parserError(error: Error)
 }
 ```
 
-### Webservice
+### WebService
 
-Webservice class is used for creating web requests and mocking requests.
-Also handles the network activity indicator, calls the parser and makes sure the callback happens on the main thread.
+The `WebService` class is used for making web requests. It implements the `WebServiceProtocol` which allows easy dependency injection and testing. The request method takes an `Endpoint` enum and a `ResultCallback`. It automatically toggles the network activity indicator using the `NetworkActivty` service and parses the data response using the `Parser` service.
 
 ```swift
-protocol WebserviceProtocol {
+protocol WebServiceProtocol {
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>)
 }
 
-class Webservice: WebserviceProtocol {
+class WebService: WebServiceProtocol {
     private let urlSession: URLSession
     private let parser: Parser
     private let networkActivity: NetworkActivityProtocol
@@ -63,7 +64,7 @@ class Webservice: WebserviceProtocol {
     func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
 
         guard let request = endpoint.request else {
-            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.invalidRequest)) })
+            OperationQueue.main.addOperation({ completition(.failure(NetworkStackError.invalidRequest)) })
             return
         }
 
@@ -74,12 +75,12 @@ class Webservice: WebserviceProtocol {
             self.networkActivity.decrement()
 
             if let error = error {
-                OperationQueue.main.addOperation({ completition(.error(error)) })
+                OperationQueue.main.addOperation({ completition(.failure(.responseError(error: error))) })
                 return
             }
 
             guard let data = data else {
-                OperationQueue.main.addOperation({ completition(.error(NetworkStackError.dataMissing)) })
+                OperationQueue.main.addOperation({ completition(.failure(NetworkStackError.dataMissing)) })
                 return
             }
 
@@ -88,10 +89,30 @@ class Webservice: WebserviceProtocol {
 
         task.resume()
     }
+}
+```
 
-    func mockRequest<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
+### MockWebService
+
+The `MockWebService` implements the same `WebServiceProtocol`. It skips making the actual web request and returns JSON data directly from a `.json` file included with the project. It is useful for running tests or returning mocked responses until the backend endpoint is ready.
+
+```swift
+class MockWebService: WebServiceProtocol {
+    private let parser: Parser
+
+    init(parser: Parser = Parser()) {
+        self.parser = parser
+    }
+
+    func request<T: Decodable>(_ endpoint: Endpoint, completition: @escaping ResultCallback<T>) {
+
+        guard let endpoint = endpoint as? MockEndpoint else {
+            OperationQueue.main.addOperation({ completition(.failure(NetworkStackError.endpointNotMocked)) })
+            return
+        }
+
         guard let data = endpoint.mockData() else {
-            OperationQueue.main.addOperation({ completition(.error(NetworkStackError.mockMissing)) })
+            OperationQueue.main.addOperation({ completition(.failure(NetworkStackError.mockDataMissing)) })
             return
         }
 
@@ -102,34 +123,63 @@ class Webservice: WebserviceProtocol {
 
 ### Network Activity
 
-Service that handles the network activity indicator
+Service that handles the network activity indicator. It implements the observer pattern using closures. An observing class can subscribe to state updates using the `observe` method and can toggle the network activity indicator.
 
 ```swift
+enum NetworkActivityState {
+    case show
+    case hide
+}
+
 protocol NetworkActivityProtocol {
     func increment()
     func decrement()
+    func observe(using closure: @escaping (NetworkActivityState) -> Void)
 }
 
 class NetworkActivity: NetworkActivityProtocol {
+    private var observations = [(NetworkActivityState) -> Void]()
+
     private var activityCount: Int = 0 {
         didSet {
-            UIApplication.shared.isNetworkActivityIndicatorVisible = (activityCount > 0)
+
+            if (activityCount < 0) {
+                activityCount = 0
+            }
+
+            if (oldValue > 0 && activityCount > 0) {
+                return
+            }
+
+            stateDidChange()
+        }
+    }
+
+    private func stateDidChange() {
+
+        let state = activityCount > 0 ? NetworkActivityState.show : NetworkActivityState.hide
+        observations.forEach { closure in
+             OperationQueue.main.addOperation({ closure(state) })
         }
     }
 
     func increment() {
-        OperationQueue.main.addOperation({ self.activityCount += 1 })
+        self.activityCount += 1
     }
 
     func decrement() {
-        OperationQueue.main.addOperation({ self.activityCount -= 1 })
+        self.activityCount -= 1
+    }
+
+    func observe(using closure: @escaping (NetworkActivityState) -> Void) {
+        observations.append(closure)
     }
 }
 ```
 
 ### Parser
 
-Called from the `Webservice`, parses the `Data` response and and calls the result callback.
+Called from the `Webservice`, parses the `Data` response and calls the result callback with initialized data structs.
 
 ```swift
 protocol ParserProtocol {
@@ -144,8 +194,8 @@ struct Parser {
             let result: T = try jsonDecoder.decode(T.self, from: data)
             OperationQueue.main.addOperation { completition(.success(result)) }
 
-        } catch let parseError {
-            OperationQueue.main.addOperation { completition(.error(parseError)) }
+        } catch let error {
+            OperationQueue.main.addOperation { completition(.failure(.parserError(error: error))) }
         }
     }
 }
@@ -153,19 +203,23 @@ struct Parser {
 
 ### Endpoint
 
-Base protocol that specific endpoint enum implementation. An endpoint enum is passed to the `Webservice` when creating a request.
+The base protocol that defines the data for a specific endpoint. An enum that implements the `Endpoint` protocol is passed to the `WebService` when creating a request.
 
 ```swift
 protocol Endpoint {
     var request: URLRequest? { get }
     var httpMethod: String { get }
+    var httpHeaders: [String : String]? { get }
     var queryItems: [URLQueryItem]? { get }
     var scheme: String { get }
     var host: String { get }
-    var mockFilename: String? { get }
-    var mockExtension: String? { get }
 }
 
+```
+
+The protocol extension defines the request method that is used for creating an `URLRequest` from the `Endpoint` enum.
+
+```swift
 extension Endpoint {
     func request(forEndpoint endpoint: String) -> URLRequest? {
 
@@ -174,12 +228,34 @@ extension Endpoint {
         urlComponents.host = host
         urlComponents.path = endpoint
         urlComponents.queryItems = queryItems
-
         guard let url = urlComponents.url else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = httpMethod
 
-        return URLRequest(url: url)
+        if let httpHeaders = httpHeaders {
+            for (key, value) in httpHeaders {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
+        }
+
+        return request
     }
+}
+```
 
+The `MockEndpoint` protocol inherits the Endpoint protocol and defines the data required for returning mocked responses.
+
+```swift
+protocol MockEndpoint: Endpoint {
+    var mockFilename: String? { get }
+    var mockExtension: String? { get }
+}
+```
+
+The first extension defines the `mockData` method that will load the `.json` file for that endpoint and return it as a `Data` object.
+
+```swift
+extension MockEndpoint {
     func mockData() -> Data? {
         guard let mockFileUrl = Bundle.main.url(forResource: mockFilename, withExtension: mockExtension),
             let mockData = try? Data(contentsOf: mockFileUrl) else {
@@ -189,82 +265,94 @@ extension Endpoint {
     }
 }
 
-extension Endpoint {
-    var scheme: String {
-        return "http"
-    }
+```
 
-    var host: String {
-        return "www.mocky.io"
-    }
+The second extension has the default values for the `mockExtension`.
 
-    var queryItems: [URLQueryItem]? {
-        return nil
-    }
-
-    var mockFilename: String? {
-       return  nil
-    }
-
+```swift
+extension MockEndpoint {
     var mockExtension: String? {
         return "json"
     }
 }
 ```
 
+## Example
+
+An example implementation of a single endpoint for fetching user data with two methods.
+
+### Shared values
+
+To set shared values between all the endpoints extend the base `Endpoint` enum. In this example, we are setting the scheme and host for all endpoints.
+
+```swift
+extension Endpoint {
+    var scheme: String {
+        return "https"
+    }
+
+    var host: String {
+        return "jsonplaceholder.typicode.com"
+    }
+}
+```
+
 ### UserEndpoint
 
-Example implementation of the `Endpoint protocol`. Implements two methods: `.all` for fetching all users and `.get(userId)` for fetching a specific user.
+Create the `UserEndpoint` for describing the users' endpoint. The enum has one case for each endpoint method. `.all` fetches all users and `get(userId: Int)` is used to fetch a user with a specific id.
 
 ```swift
 enum UserEndpoint {
-   case all
-   case get(userId: Int)
+    case all
+    case get(userId: Int)
 }
+```
 
+The extension of the `UserEndpoint` defines the values that will be used when converting the UserEndpoint enum case into a `URLRequest`. The `request` property defines the URL, we also define the `httpMethod`, `queryItems` and `httpHeaders`.
+
+```swift
 extension UserEndpoint: Endpoint {
 
-   var request: URLRequest? {
-       switch self {
-       case .all:
-           return request(forEndpoint: "/v2/58177efc1000008c01cc7fc2")
-       case .get(_):
-           return request(forEndpoint: "/v2/58177ddc1000008901cc7fbf")
-       }
-   }
+    var request: URLRequest? {
+        switch self {
+        case .all:
+            return request(forEndpoint: "/users")
+        case .get(let userId):
+            return request(forEndpoint: "/users/\(userId)")
+        }
+    }
 
-   var httpMethod: String {
-       switch self {
-       case .all:
-           return "GET"
-       case .get( _):
-           return "GET"
-       }
-   }
+    var httpMethod: String {
+        switch self {
+        case .all:
+            return "GET"
+        case .get( _):
+            return "GET"
+        }
+    }
 
-   var queryItems: [URLQueryItem]? {
-       switch self {
-       case .all:
-           return nil
-       case .get(let userId):
-           return [URLQueryItem(name: "userId", value: String(userId))]
-       }
-   }
+    var queryItems: [URLQueryItem]? {
+        switch self {
+        case .all:
+            return nil
+        case .get(let userId):
+            return [URLQueryItem(name: "userId", value: String(userId))]
+        }
+    }
 
-   var mockFilename: String? {
-       switch self {
-       case .all:
-           return "users"
-       case .get( _):
-           return "user"
-       }
-   }
+    var httpHeaders: [String: String]? {
+        let headers: [String: String] = ["headerField" : "headerValue"]
+        switch self {
+        case .all, .get( _):
+            return headers
+        }
+    }
 }
 ```
 
 ### User
 
-Example of the entity model that the parser creates from the `Data` json.
+Create a User struct that represents the model that will be created by the `Parser` service. It needs to conform to the Codable protocol.
 
 ```swift
 struct User: Codable {
@@ -274,43 +362,88 @@ struct User: Codable {
 }
 ```
 
-## Example
+### Use
 
-Create a Webservice instance and use it to create two normal requests and two mock requests.
+Create a `WebService` object, call its request method and pass it an Endpoint enum. Its also needed to specify the type of the result callback so that the `Parser` service knows how to create the model structs.
 
 ```swift
-let webservice = Webservice()
+let webService = WebService()
 
-webservice.request(UserEndpoint.all) { (result: Result<[User]>) in
+webService.request(UserEndpoint.all) { (result: Result<[User], NetworkStackError>) in
     switch result {
-    case .error(let error):
+    case .failure(let error):
         dump(error)
     case .success(let users):
         dump(users)
     }
 }
 
-webservice.request(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
+webService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, NetworkStackError>) in
     switch result {
-    case .error(let error):
+    case .failure(let error):
+        dump(error)
+    case .success(let users):
+        dump(users)
+    }
+}
+```
+
+### Network activity
+
+Use the `observe` method on the `NetworkActivity` service to subscribe to network activity changes and toggle the network activity indicator
+
+```swift
+let networkActivity = NetworkActivity()
+let webService = WebService(networkActivity: networkActivity)
+
+networkActivity.observe { state in
+    switch state {
+    case .show:
+        print("Network activity indicator: SHOW")
+    case .hide:
+        print("Network activity indicator: HIDE")
+    }
+}
+```
+
+## Mocking
+
+### Setup
+
+Create two `.json` files with the responses we want to return and add them to the project. Also, extend the `UserEndpoint` with the `MockEndpoint` protocol and set the filenames for the JSON response files.
+
+```swift
+extension UserEndpoint: MockEndpoint {
+    var mockFilename: String? {
+        switch self {
+        case .all:
+            return "users"
+        case .get( _):
+            return "user"
+        }
+    }
+}
+```
+
+### Use
+
+Create a `MockWebService` instance and call the request method exactly the same way as for a normal `WebService`.
+
+```swift
+let mockWebService = MockWebService()
+
+mockWebService.request(UserEndpoint.get(userId: 10)) { (result: Result<User, NetworkStackError>) in
+    switch result {
+    case .failure(let error):
         dump(error)
     case .success(let users):
         dump(users)
     }
 }
 
-webservice.mockRequest(UserEndpoint.get(userId: 10)) { (result: Result<User>) in
+mockWebService.request(UserEndpoint.all) { (result: Result<[User], NetworkStackError>) in
     switch result {
-    case .error(let error):
-        dump(error)
-    case .success(let users):
-        dump(users)
-    }
-}
-
-webservice.mockRequest(UserEndpoint.all) { (result: Result<[User]>) in
-    switch result {
-    case .error(let error):
+    case .failure(let error):
         dump(error)
     case .success(let users):
         dump(users)
